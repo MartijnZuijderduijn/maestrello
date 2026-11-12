@@ -1,0 +1,78 @@
+/* Account / usage indicator in the header, with a click-to-open popover. */
+header > button { flex: none; }
+header .sandbox { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+header button.acct { flex: 0 1 auto; border-color: transparent; background: none; padding: 5px 6px; }
+header button.gear { display: inline-flex; align-items: center; justify-content: center; padding: 5px 8px; color: var(--muted); }
+header button.gear svg { display: block; transition: transform var(--t-med) var(--ease-out); }
+header button.gear:hover svg, header button.gear:focus svg, header button.gear:focus-visible svg { transform: rotate(45deg); }
+header button.gear:hover, header button.gear:focus-visible { border-color: var(--accent); color: var(--accent); }
+header button.acct:hover { border-color: var(--border); }
+header .acct { min-width: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; font-size: 12px; color: var(--muted); }
+header .acct .email { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+header .acct .email.off { color: var(--muted); font-style: italic; }
+header .acct .lims { flex: 0 1 auto; min-width: 0; display: flex; gap: 6px; overflow: hidden; }
+header .acct .lim { flex: none; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; }
+.lim.warn, .acct-pop .warn { color: var(--warn); border-color: var(--warn) !important; }
+.lim.bad, .acct-pop .bad { color: var(--bad); border-color: var(--bad) !important; }
+/* Usage gauges: ring in header chips, bar in the popover. Colour follows the status (--c). */
+.lim, .win { --c: var(--ok); }
+.lim.warn, .win.warn { --c: var(--warn); } .lim.bad, .win.bad { --c: var(--bad); }
+@property --p { syntax: "<number>"; inherits: false; initial-value: 0; }
+.ring { transition: --p .6s var(--ease-out); display: inline-block; vertical-align: -2px; width: 12px; height: 12px; margin-right: 4px; border-radius: 50%; box-sizing: border-box;
+  background: conic-gradient(var(--c) calc(var(--p) * 1%), var(--border) 0);
+  -webkit-mask: radial-gradient(circle, transparent 3.5px, #000 4px); mask: radial-gradient(circle, transparent 3.5px, #000 4px); }
+.ring.na { background: none; -webkit-mask: none; mask: none; border: 2px dashed var(--border); }
+.lim.bad .ring.na, .lim.warn .ring.na { border-color: var(--c); }
+@keyframes chip-pulse { 50% { box-shadow: 0 0 0 3px color-mix(in oklab, var(--bad) 30%, transparent); } }
+header .acct .lim.bad { animation: chip-pulse 2s ease-in-out infinite; }
+.bar { position: relative; height: 6px; margin: 6px 0 2px; border-radius: 999px; background: var(--border); }
+.bar i { position: absolute; inset: 0; border-radius: 999px; background: var(--c); transform: scaleX(var(--f, 0)); transform-origin: left; transition: transform .3s; }
+.bar b { position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; background: var(--text); opacity: .6; }
+.bar.na { background: none; border: 1px dashed var(--border); height: 4px; }
+.win.bad .bar.na, .win.warn .bar.na { border-color: var(--c); }
+.acct-pop { position: fixed; top: 52px; right: 16px; z-index: 5; width: min(380px, calc(100vw - 32px)); max-height: calc(100vh - 70px); overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--modal-shadow); padding: 12px 14px; font-size: 13px; }
+.acct-pop:not([hidden]) { animation: pop-in .14s ease-out; transform-origin: top right; }
+.acct-pop h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.acct-pop dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0 0 12px; }
+.acct-pop dt { color: var(--muted); } .acct-pop dd { margin: 0; overflow-wrap: anywhere; }
+.acct-pop .win { border-top: 1px solid var(--border); padding: 6px 0; }
+.acct-pop .win .meta { margin-top: 2px; }
+.acct-pop .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.acct-pop .head button { font-size: 12px; padding: 2px 9px; }
+@media (max-width: 600px) {
+  .board { padding: 10px 16px; }
+  .lane-head .root { display: none; }
+  header { gap: 8px; padding: 12px 10px; }
+  header .acct .email, header .acct .lim .rs { display: none; }
+  #overlay { padding: 6px; }
+  .drawer { width: 100%; height: calc(100vh - 12px); height: calc(100dvh - 12px); max-height: none; border-radius: 12px; }
+  .modal-head { padding: 10px 10px 10px 16px; gap: 8px; }
+  .modal-head .av { width: 36px; height: 36px; }
+  .modal-body { padding: 10px 16px 28px; }
+}
+/* The one reduced-motion block: every transition and animation in web/*.css is neutralised here. */
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .drawer::before, .drawer-bg, .closing .drawer, .closing .drawer-bg { animation: none; }
+  .picker-bg, .picker-box, #picker.closing .picker-box, #picker.closing .picker-bg { animation: none; }
+  .acct-pop:not([hidden]), .proj-pop:not([hidden]) { animation: none; }
+  .flash, .flash::after, .flash.closing { animation: none; }
+  .log div.new { animation: none; }
+  details.sec > summary::before, details.sec::details-content, .badge { transition: none; }
+  .lane:not(.collapsed) .lane-cols { animation: none; }
+  .card.enter, .card .waiting, .dot, .empty-state, .empty-col { animation: none; }
+  .card, .card .del, .column, .column h2 .clear, .empty-col, .lane-split::before { transition: none; }
+  .card:hover, .card.dragging, .card.dragging:hover { transform: none; }
+  .skeleton, .spinner { animation: none; }
+  .skeleton { background-position: 50% 0; }
+  header h1 .logo:hover { animation: none; }
+  header button.primary:hover:not(:disabled) { box-shadow: none; }
+  .ring, header button.gear svg { transition: none; }
+  header button.gear:hover svg, header button.gear:focus svg, header button.gear:focus-visible svg { transform: none; }
+  header .acct .lim.bad { animation: none; }
+  .bar i, .lane-head button.fold svg { transition: none; }
+  .av .fx, .av .eyes, .av .tip { animation: none !important; }
+  :root { --t-fast: 0s; --t-med: 0s; --t-slow: 0s; --press-scale: 1; }
+  button, input, textarea, select { transition: none; }
+  button:active:not(:disabled) { transform: none; }
+}

@@ -1,0 +1,6 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = true
+[remote "origin"]
+	url = /home/martijn/code/claudeban/testdata/test-2622225747/seed/svc/a
