@@ -16,7 +16,7 @@ maestrello
 
 `maestrello` (same as `maestrello start`) serves the board on http://127.0.0.1:7878 with data in `~/.maestrello`, and opens it in your browser. If a board is already running on that address, it opens that one instead of starting a second. Other commands:
 
-- `maestrello start -open=false`: start without opening the browser. See `maestrello start -h` for all flags (`-addr`, `-data`, `-claude`, `-opencode`, `-mistral`, `-sandbox-root`).
+- `maestrello start -open=false`: start without opening the browser. See `maestrello start -h` for all flags (`-addr`, `-data`, `-claude`, `-opencode`, `-mistral`, `-omp`, `-sandbox-root`).
 - `maestrello open`: open the running board.
 - `maestrello status`: show whether a board is running, and its data dir.
 - `maestrello stop`: stop the running board (Ctrl+C in its terminal does the same).
@@ -47,7 +47,7 @@ A client that already has a detailed prompt can save the refinement tokens: `cre
 
 Automatic model selection (`auto_model`) replaces the manual model setting for a card. It is an option per card (a checkbox in the new-card and edit forms, `auto_model` on `create_card`/`update_card` and the API); the `auto_model` setting in Settings (off by default) only sets the default for new cards. With it on for a card, the refiner is given every model of every available adapter that has capability/cost metadata (`tier` 1-5 and a relative `cost`, 0 = free) and answers with `complexity`, `model`, `harness` and a `model_reason`: the smallest, cheapest model that can do the task well, on a cheaper or free adapter when that is capable enough. The card then runs with that model and adapter (its model, harness, and, when the adapter changes, effort and permission mode are replaced, so the board and card edit show what was chosen), and the choice and reason are logged on the card. The card's manual model select is disabled while its option is on, and the manual model is ignored for it once refined. Built-in metadata covers the claude models (haiku tier 1/cost 1, sonnet 3/3, opus 5/15: rough relative figures, not prices); add or override entries, e.g. for opencode/Ollama models, with `model_info` in Settings (a JSON box, or `PUT /api/settings`): `{"opencode/ollama/qwen3-coder:30b": {"tier": 3, "cost": 0}}`. A model without metadata is never offered. If the refiner's choice is missing, unknown or unavailable, the board uses its own rule (cheapest model whose tier covers the `complexity`) when the task was rated, and otherwise keeps the card's manual model; a card that skips refinement also keeps its manual model. With the option off nothing changes.
 
-Every card runs with a harness, the coding-agent CLI behind it (`claude`, `opencode` or `mistral`; mistral drives Mistral Vibe (`vibe`) with no effort setting and no session resume, see SPEC.md for what was not verified live; opencode drives the `opencode` CLI, so it can use Ollama models such as `ollama/qwen3-coder:30b`, and has no effort setting). The board card shows it first in its meta line (`#12 · claude · sonnet · medium · auto`), the new-card, edit and Settings forms have a harness select (the default for new cards is in Settings), and `GET /api/harnesses` lists the harnesses with the efforts and permission modes each accepts. The board checks in the background which harness CLIs work on this machine (binary found and `--version` runs; point `-claude` / `-opencode` / `-mistral` at other paths if needed), shows it in Settings with a re-check button, marks unavailable harnesses in the selects and refuses to run cards on them with the reason. opencode has no permission callback (permission modes are `auto` and `plan`) and no structured output (refinement JSON is read from its text). `list_cards` includes each card's `harness`, and `create_card`/`update_card` take it.
+Every card runs with a harness, the coding-agent CLI behind it (`claude`, `opencode`, `mistral` or `omp`; omp drives the Oh My Pi CLI (`omp`) with `--thinking` efforts, session resume and its account shown in the header (no usage chips; the omp adapter was checked against omp 18.20.0 but never ran a model, see SPEC.md); mistral drives Mistral Vibe (`vibe`) with no effort setting and no session resume, see SPEC.md for what was not verified live; opencode drives the `opencode` CLI, so it can use Ollama models such as `ollama/qwen3-coder:30b`, and has no effort setting). The board card shows it first in its meta line (`#12 · claude · sonnet · medium · auto`), the new-card, edit and Settings forms have a harness select (the default for new cards is in Settings), and `GET /api/harnesses` lists the harnesses with the efforts and permission modes each accepts. The board checks in the background which harness CLIs work on this machine (binary found and `--version` runs; point `-claude` / `-opencode` / `-mistral` at other paths if needed), shows it in Settings with a re-check button, marks unavailable harnesses in the selects and refuses to run cards on them with the reason. opencode has no permission callback (permission modes are `auto` and `plan`) and no structured output (refinement JSON is read from its text). `list_cards` includes each card's `harness`, and `create_card`/`update_card` take it.
 
 ### Card kinds
 
@@ -110,7 +110,7 @@ Stopping a board ends its agent sessions. A card that was working goes to Failed
 - `internal/cli`: the command line (`start`, `stop`, `restart`, `mcp`, ...), rebuild and the stdio MCP bridge.
 - `internal/board`: the board itself: card lifecycle, runner, leases, review, HTTP API and MCP endpoints.
 - `internal/model`, `internal/store`, `internal/settings`: the data types, the SQLite store, and layered settings resolution and validation.
-- `internal/harness`: the agent CLI adapters (Claude Code, opencode, Mistral Vibe). `internal/gitops`: git and `gh`. `internal/sandbox`: the path guard. `internal/textutil`: small string helpers.
+- `internal/harness`: the agent CLI adapters (Claude Code, opencode, Mistral Vibe, Oh My Pi). `internal/gitops`: git and `gh`. `internal/sandbox`: the path guard. `internal/textutil`: small string helpers.
 - `internal/testenv`: what the tests share: the `testdata/` fixtures, scratch dirs and fake agent CLIs.
 - `frontend/`: the web UI (plain ES modules, no build step), embedded into the binary.
 
@@ -126,10 +126,10 @@ go run ./cmd/maestrello start -sandbox-root testdata  # data in testdata/work; u
 To exercise the board without a model, use the fake CLI (`testdata/fake-claude.sh`, see its header for the keywords it reacts to):
 
 ```bash
-go run ./cmd/maestrello -sandbox-root testdata -data testdata/work-fake -claude testdata/fake-claude.sh -opencode testdata/fake-opencode.sh -mistral testdata/fake-mistral.sh
+go run ./cmd/maestrello -sandbox-root testdata -data testdata/work-fake -claude testdata/fake-claude.sh -opencode testdata/fake-opencode.sh -mistral testdata/fake-mistral.sh -omp testdata/fake-omp.sh
 ```
 
-`testdata/fake-opencode.sh` does the same for the opencode harness (a fake `--version`, `models`, and `run --format json`); `testdata/fake-mistral.sh` does it for the mistral harness (`--version` and `-p --output streaming|text`).
+`testdata/fake-opencode.sh` does the same for the opencode harness (a fake `--version`, `models`, and `run --format json`); `testdata/fake-mistral.sh` does it for the mistral harness (`--version` and `-p --output streaming|text`); `testdata/fake-omp.sh` does it for the omp harness (`--version`, `usage --json` and `-p [--mode json]`).
 
 Its `PLAN` keyword makes a plan card propose two tasks, and `CHAT` (or any prompt of a chat card) makes it reply and end its turn.
 

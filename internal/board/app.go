@@ -27,6 +27,7 @@ type App struct {
 	claudeBin   string // per-adapter CLI paths, see harnessBins
 	opencodeBin string
 	mistralBin  string
+	ompBin      string
 
 	mu       sync.Mutex
 	runs     map[int64]*Run            // live agent sessions by card

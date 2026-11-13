@@ -27,7 +27,7 @@ var Toolbox = []ToolDef{
 
 func init() {
 	for i := range Toolbox {
-		for _, h := range []string{"claude", "opencode", "mistral"} {
+		for _, h := range []string{"claude", "opencode", "mistral", "omp"} {
 			if Toolbox[i].Native[h] != "" {
 				Toolbox[i].Harnesses = append(Toolbox[i].Harnesses, h)
 			}

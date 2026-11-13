@@ -43,6 +43,9 @@ func FakeOpencode() string { return filepath.Join(Testdata(), "fake-opencode.sh"
 // FakeMistral is the stand-in for the Mistral Vibe CLI.
 func FakeMistral() string { return filepath.Join(Testdata(), "fake-mistral.sh") }
 
+// FakeOmp is the stand-in for the omp CLI.
+func FakeOmp() string { return filepath.Join(Testdata(), "fake-omp.sh") }
+
 // Dir creates a scratch directory inside testdata/, never in the system temp dir:
 // tests must not touch anything outside the project folder.
 func Dir(t *testing.T) string {

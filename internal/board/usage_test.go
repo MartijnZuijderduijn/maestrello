@@ -142,6 +142,10 @@ func TestAccountEndpoint(t *testing.T) {
 	if e := entryOf(t, after, "mistral"); !e.AccountSupported || e.UsageSupported || e.AccountError != "" || e.Account == nil || len(e.Limits) != 0 {
 		t.Errorf("mistral entry = %+v", e)
 	}
+	// omp reports an account from `omp usage --json` (the fake lists one) but no usage.
+	if e := entryOf(t, after, "omp"); !e.AccountSupported || e.UsageSupported || e.AccountError != "" || e.Account == nil || !e.Account.LoggedIn || len(e.Limits) != 0 {
+		t.Errorf("omp entry = %+v", e)
+	}
 }
 
 func TestMistralAccountEntry(t *testing.T) {
@@ -263,6 +267,9 @@ func TestRefreshAccountsAtStartup(t *testing.T) {
 	if c := entryOf(t, s, "mistral"); c.Account == nil || c.CheckedAt == nil {
 		t.Errorf("mistral not refreshed: %+v", c)
 	}
+	if c := entryOf(t, s, "omp"); c.Account == nil || c.CheckedAt == nil {
+		t.Errorf("omp not refreshed: %+v", c)
+	}
 }
 
 func TestRateLimitEventRecorded(t *testing.T) {
@@ -293,7 +300,7 @@ func TestRateLimitEventRecorded(t *testing.T) {
 		week.SurpassedThreshold == nil || week.ResetsAt <= five.ResetsAt {
 		t.Errorf("seven_day = %+v", week)
 	}
-	for _, name := range []string{"opencode", "mistral"} {
+	for _, name := range []string{"opencode", "mistral", "omp"} {
 		if l := entryOf(t, s, name).Limits; len(l) != 0 {
 			t.Errorf("%s limits = %+v", name, l)
 		}
@@ -415,6 +422,7 @@ func TestHarnessWithoutAccountOrUsage(t *testing.T) {
 	// Neither a refresh nor a stream makes it fail or record anything.
 	streamFor(t, app, "nocaps", rateLine)
 	streamFor(t, app, "mistral", rateLine) // a built-in adapter without usage events
+	streamFor(t, app, "omp", rateLine)
 	app.recordUsage("claude", nil)
 	for _, q := range []string{"", "?refresh=1", "?harness=nocaps&refresh=1"} {
 		e := entryOf(t, getAccount(t, app, q), "nocaps")
@@ -424,6 +432,9 @@ func TestHarnessWithoutAccountOrUsage(t *testing.T) {
 	}
 	if e := entryOf(t, getAccount(t, app, "?harness=mistral&refresh=1"), "mistral"); e.UsageSupported || e.AccountError != "" || len(e.Limits) != 0 {
 		t.Errorf("mistral entry = %+v", e)
+	}
+	if e := entryOf(t, getAccount(t, app, "?harness=omp&refresh=1"), "omp"); e.UsageSupported || e.AccountError != "" || len(e.Limits) != 0 {
+		t.Errorf("omp entry = %+v", e)
 	}
 	if raw, _ := app.store.GetKV(usageSettingKey); raw != "" {
 		t.Errorf("usage_limits written for a harness without usage: %q", raw)

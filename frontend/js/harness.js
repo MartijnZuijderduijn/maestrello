@@ -13,6 +13,7 @@ export let harnesses = [
   { name: "claude", efforts: EFFORTS, permission_modes: MODES, available: true, version: "", error: "", models: [] },
   { name: "opencode", efforts: [], permission_modes: ["auto", "plan"], available: true, version: "", error: "", models: [] },
   { name: "mistral", efforts: [], permission_modes: ["auto", "plan"], available: true, version: "", error: "", models: [] },
+  { name: "omp", efforts: ["minimal", "low", "medium", "high", "xhigh", "max"], permission_modes: ["auto", "plan"], available: true, version: "", error: "", models: [] },
 ];
 export { harnessIcon };
 export const harnessInfo = (name) => harnesses.find((h) => h.name === name) || harnesses[0];

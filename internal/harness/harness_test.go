@@ -384,6 +384,36 @@ func TestMistralAccount(t *testing.T) {
 	}
 }
 
+func TestOmpAccount(t *testing.T) {
+	h := newOmpHarness(testenv.FakeOmp())
+	if c := h.Caps(); !c.Account || c.Usage {
+		t.Errorf("omp caps = %+v, want account without usage", c)
+	}
+	if u := h.ParseUsage([]byte(`{"rate_limit_info":{"status":"allowed"}}`)); u != nil {
+		t.Errorf("ParseUsage = %+v", u)
+	}
+	for _, k := range ompKeyEnv {
+		t.Setenv(k, "")
+	}
+	a, err := h.Account(context.Background())
+	if err != nil || !a.LoggedIn || a.APIProvider != "anthropic" || a.Email != "fake@example.com" {
+		t.Fatalf("account = %+v, %v", a, err)
+	}
+	t.Setenv("FAKE_OMP_LOGGED_OUT", "1")
+	if a, err := h.Account(context.Background()); err != nil || a.LoggedIn {
+		t.Errorf("logged out: %+v, %v", a, err)
+	}
+	// An API key in the environment counts, and its value is never returned.
+	t.Setenv("OPENAI_API_KEY", "sk-secret-123")
+	a, _ = h.Account(context.Background())
+	if b, _ := json.Marshal(a); !a.LoggedIn || a.AuthMethod != "api key" || strings.Contains(string(b), "secret") {
+		t.Errorf("env key: %s", b)
+	}
+	if _, err := newOmpHarness("/no/such/omp").Account(context.Background()); err == nil {
+		t.Error("missing binary gave no error")
+	}
+}
+
 func TestClaudeParseUsage(t *testing.T) {
 	h := claudeHarness{}
 	// Lines that are not rate_limit_events carry no usage, and bad shapes do not panic.

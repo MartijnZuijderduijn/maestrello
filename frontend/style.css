@@ -106,6 +106,7 @@ header button.proj span { overflow: hidden; text-overflow: ellipsis; white-space
 .hicon-claude { color: var(--accent); }
 .hicon-opencode { color: var(--teal); }
 .hicon-mistral { color: #fa5310; }
+.hicon-omp { color: #8b5cf6; }
 .hav { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 4px 0; }
 .hav .bad, .hav.note { color: var(--bad); }
 .hav button { padding: 0 6px; }

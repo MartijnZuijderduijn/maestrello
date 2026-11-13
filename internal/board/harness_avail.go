@@ -10,11 +10,11 @@ import (
 
 // harnessBins is the binary path each adapter was configured with, read at call time.
 func (a *App) harnessBins() map[string]string {
-	return map[string]string{"claude": a.claudeBin, "opencode": a.opencodeBin, "mistral": a.mistralBin}
+	return map[string]string{"claude": a.claudeBin, "opencode": a.opencodeBin, "mistral": a.mistralBin, "omp": a.ompBin}
 }
 
 // harness resolves a harness name to an adapter that starts processes. It reads
-// the per-adapter binaries (a.claudeBin, a.opencodeBin, a.mistralBin) at call time, so changing
+// the per-adapter binaries (a.claudeBin, a.opencodeBin, a.mistralBin, a.ompBin) at call time, so changing
 // one after construction takes effect.
 func (a *App) harness(name string) (harness.Harness, error) {
 	return harness.Build(name, a.harnessBins())
