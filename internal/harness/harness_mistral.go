@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"maestrello/internal/model"
@@ -31,8 +32,10 @@ import (
 //     `permission = "always"` per enabled tool) and agents/maestrello.toml (the board
 //     instructions, which Vibe appends after its own system prompt). The user's
 //     `.env` (API key) is linked in; their own config.toml, models and providers are
-//     not (a TOML file cannot be merged safely), so models are Vibe's built-in
-//     aliases/IDs or the MISTRAL_API_KEY-backed defaults.
+//     not (a TOML file cannot be merged safely), except the `[[models]]` and
+//     `[[providers]]` tables and `active_model`, which are copied as text so that
+//     `--model <alias>` finds the user's aliases (Vibe rejects an unknown alias).
+//     With none, the only alias is the built-in "mistral-medium-3.5".
 //   - MCP tools are named `<server>_<tool>`, so the board's tools are
 //     `maestrello_<tool>` (as in opencode); the instructions are rewritten to match.
 //   - Programmatic runs deny every tool call that needs approval, so the adapter
@@ -200,7 +203,8 @@ func tomlList(items []string) string {
 // mvConfig is the per-run config.toml: top-level keys first, then the tables.
 func mvConfig(tools []string, mcpURL string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "default_agent = %s\nenabled_tools = %s\n\n", tomlStr("maestrello"), tomlList(tools))
+	userTop, userTables := mvUserModelConfig(filepath.Join(mvUserHome(), "config.toml"))
+	fmt.Fprintf(&b, "default_agent = %s\nenabled_tools = %s\n%s\n", tomlStr("maestrello"), tomlList(tools), userTop)
 	if mcpURL != "" {
 		// ask_user blocks until the user answers: long tool timeout.
 		fmt.Fprintf(&b, "[[mcp_servers]]\nname = %s\ntransport = \"streamable-http\"\nurl = %s\nstartup_timeout_sec = 30\ntool_timeout_sec = 86400\n\n", tomlStr("maestrello"), tomlStr(mcpURL))
@@ -208,7 +212,62 @@ func mvConfig(tools []string, mcpURL string) string {
 	for _, n := range tools {
 		fmt.Fprintf(&b, "[tools.%s]\npermission = \"always\"\n\n", n)
 	}
+	b.WriteString(userTables)
 	return b.String()
+}
+
+// mvBuiltinModel is the one model alias Vibe has without any config.
+const mvBuiltinModel = "mistral-medium-3.5"
+
+// mvIsModelTable reports whether a TOML header line opens a models or providers table.
+func mvIsModelTable(line string) bool {
+	h := strings.TrimLeft(line, "[ ")
+	return strings.HasPrefix(h, "models") || strings.HasPrefix(h, "providers")
+}
+
+// mvUserModelConfig pulls what selects a model out of the user's config.toml, as
+// text: the top-level `active_model` line, and the models/providers tables.
+func mvUserModelConfig(path string) (top, tables string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
+	}
+	var t, b strings.Builder
+	inTables, keep := false, false
+	for _, line := range strings.Split(string(data), "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "[") {
+			inTables = true
+			keep = mvIsModelTable(trim)
+			if keep {
+				b.WriteString("\n")
+			}
+		}
+		switch {
+		case inTables && keep:
+			b.WriteString(line + "\n")
+		case !inTables && strings.HasPrefix(trim, "active_model") && strings.Contains(trim, "="):
+			t.WriteString(trim + "\n")
+		}
+	}
+	return t.String(), b.String()
+}
+
+// ListModels is the built-in alias plus the aliases of the user's `[[models]]`
+// (Vibe has no command that lists them), so the board can offer a choice.
+func (mistralHarness) ListModels() []string {
+	models := []string{mvBuiltinModel}
+	_, tables := mvUserModelConfig(filepath.Join(mvUserHome(), "config.toml"))
+	for _, line := range strings.Split(tables, "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok || strings.TrimSpace(k) != "alias" {
+			continue
+		}
+		if a := strings.Trim(strings.TrimSpace(v), `"'`); a != "" && !slices.Contains(models, a) {
+			models = append(models, a)
+		}
+	}
+	return models
 }
 
 func mvAgent(instructions string) string {
