@@ -40,6 +40,9 @@ func FakeClaude() string { return filepath.Join(Testdata(), "fake-claude.sh") }
 // FakeOpencode is the stand-in for the opencode CLI.
 func FakeOpencode() string { return filepath.Join(Testdata(), "fake-opencode.sh") }
 
+// FakeMistral is the stand-in for the Mistral Vibe CLI.
+func FakeMistral() string { return filepath.Join(Testdata(), "fake-mistral.sh") }
+
 // Dir creates a scratch directory inside testdata/, never in the system temp dir:
 // tests must not touch anything outside the project folder.
 func Dir(t *testing.T) string {

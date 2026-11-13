@@ -26,6 +26,7 @@ type App struct {
 	baseURL     string // where agents reach the board's MCP endpoint
 	claudeBin   string // per-adapter CLI paths, see harnessBins
 	opencodeBin string
+	mistralBin  string
 
 	mu       sync.Mutex
 	runs     map[int64]*Run            // live agent sessions by card
