@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -169,7 +170,7 @@ func TestClaudeParseEvent(t *testing.T) {
 	}
 
 	ev := parse(`{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"  hello\nworld"}]}}`)
-	if !ev.Assistant || ev.Kind != "assistant" || ev.TurnID != "msg_1" || ev.Activity != "hello" || ev.Result || ev.RateLimited || ev.UsageInfo {
+	if !ev.Assistant || ev.Kind != "assistant" || ev.TurnID != "msg_1" || ev.Activity != "hello" || ev.Result || ev.RateLimited {
 		t.Errorf("assistant text: %+v", ev)
 	}
 	ev = parse(`{"type":"assistant","message":{"id":"msg_2","content":[{"type":"text","text":"thinking"},{"type":"tool_use","name":"Bash","input":{"command":"ls -l\nmore"}}]}}`)
@@ -202,20 +203,23 @@ func TestClaudeParseEvent(t *testing.T) {
 
 	line := `{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"five_hour"}}`
 	ev = parse(line)
-	if !ev.RateLimited || ev.RateLimitMsg != line || !ev.UsageInfo || ev.Kind != "rate_limit_event" {
+	if !ev.RateLimited || ev.RateLimitMsg != line || ev.Kind != "rate_limit_event" {
 		t.Errorf("rate_limit rejected: %+v", ev)
 	}
+	if u := h.ParseUsage([]byte(line)); len(u) != 1 || u[0].Type != "five_hour" || u[0].Status != "rejected" {
+		t.Errorf("rate_limit rejected usage: %+v", u)
+	}
 	ev = parse(`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","overageStatus":"rejected","utilization":0.42}}`)
-	if ev.RateLimited || !ev.UsageInfo {
+	if ev.RateLimited {
 		t.Errorf("allowed with rejected overage: %+v", ev)
 	}
 	ev = parse(`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","utilization":0.81}}`)
-	if ev.RateLimited || !ev.UsageInfo {
+	if ev.RateLimited {
 		t.Errorf("allowed_warning: %+v", ev)
 	}
 
 	ev = parse(`{"type":"system","subtype":"init","session_id":"s"}`)
-	if ev.Kind != "system" || ev.Assistant || ev.Result || ev.RateLimited || ev.UsageInfo {
+	if ev.Kind != "system" || ev.Assistant || ev.Result || ev.RateLimited {
 		t.Errorf("system init: %+v", ev)
 	}
 
@@ -314,5 +318,98 @@ func TestRateLimitRejected(t *testing.T) {
 		if got := rateLimitRejected([]byte(line)); got != want {
 			t.Errorf("rateLimitRejected(%s) = %v", line, got)
 		}
+	}
+}
+
+func TestClaudeCaps(t *testing.T) {
+	if c := (claudeHarness{}).Caps(); !c.Account || !c.Usage {
+		t.Errorf("claude caps = %+v, want account and usage", c)
+	}
+	if c := (opencodeHarness{}).Caps(); c.Account || c.Usage {
+		t.Errorf("opencode caps = %+v, want neither account nor usage", c)
+	}
+	if a, err := (opencodeHarness{}).Account(context.Background()); a != nil || !errors.Is(err, ErrNoAccount) {
+		t.Errorf("opencode Account = %+v, %v", a, err)
+	}
+	if u := (opencodeHarness{}).ParseUsage([]byte(`{"rate_limit_info":{"status":"allowed","rateLimitType":"five_hour"}}`)); u != nil {
+		t.Errorf("opencode ParseUsage = %+v", u)
+	}
+}
+
+func TestClaudeParseUsage(t *testing.T) {
+	h := claudeHarness{}
+	// Lines that are not rate_limit_events carry no usage, and bad shapes do not panic.
+	for _, line := range []string{
+		`{"type":"assistant","message":{"id":"m","content":[]}}`,
+		`{"type":"rate_limit_event","rate_limit_info":"nonsense"}`,
+		`{"type":"rate_limit_event","rate_limit_info":{}}`,
+		`not json rate_limit_info`,
+	} {
+		if u := h.ParseUsage([]byte(line)); len(u) != 0 {
+			t.Errorf("ParseUsage(%q) = %+v, want nothing", line, u)
+		}
+	}
+
+	u := h.ParseUsage([]byte(`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","rateLimitType":"seven_day","resetsAt":1900000000123,
+		"utilization":0.81,"surpassedThreshold":0.75,"overageStatus":"rejected","overageResetsAt":1900500000,"isUsingOverage":false}}`))
+	if len(u) != 1 {
+		t.Fatalf("usage = %+v", u)
+	}
+	l := u[0]
+	if l.Type != "seven_day" || l.Status != "allowed_warning" || l.ResetsAt != 1900000000 || *l.Utilization != 0.81 || *l.SurpassedThreshold != 0.75 ||
+		l.OverageStatus != "rejected" || l.OverageResetsAt != 1900500000 || l.IsUsingOverage == nil || *l.IsUsingOverage {
+		t.Errorf("seven_day = %+v", l)
+	}
+
+	// unifiedWindows come first (sorted), then the top-level window, which wins when the board merges.
+	u = h.ParseUsage([]byte(`{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"five_hour","resetsAt":1900000000,
+		"unifiedWindows":{"seven_day":{"utilization":0.3,"resetsAt":1900500000},"five_hour":{"utilization":1.02,"resetsAt":1900000000,"status":"rejected"}}}}`))
+	if len(u) != 3 || u[0].Type != "five_hour" || u[1].Type != "seven_day" || u[2].Type != "five_hour" ||
+		*u[0].Utilization != 1.02 || *u[1].Utilization != 0.3 || u[1].ResetsAt != 1900500000 || u[2].Status != "rejected" || u[2].Utilization != nil {
+		t.Errorf("unified usage = %+v", u)
+	}
+
+	// A top-level info with no window and no status says nothing.
+	if u := h.ParseUsage([]byte(`{"rate_limit_info":{"utilization":0.5}}`)); len(u) != 0 {
+		t.Errorf("windowless usage = %+v", u)
+	}
+	// A status without a window type is kept as "unknown".
+	if u := h.ParseUsage([]byte(`{"rate_limit_info":{"status":"allowed"}}`)); len(u) != 1 || u[0].Type != "unknown" {
+		t.Errorf("unknown window usage = %+v", u)
+	}
+}
+
+func TestClaudeParseAccount(t *testing.T) {
+	cases := map[string]*Account{
+		`{"loggedIn":true,"email":"a@b.invalid","authMethod":"claude.ai","planTier":"pro","extra":{"x":1}}`: {LoggedIn: true, Email: "a@b.invalid", AuthMethod: "claude.ai", SubscriptionType: "pro"},
+		`{"loggedIn":false,"email":"a@b.invalid"}`:                                                          {LoggedIn: false},
+		`{"loggedIn":true,"email":42}`:                                                                      {LoggedIn: true},
+		`{"something":"else"}`:                                                                              nil,
+		`Logged in as a@b.invalid`:                                                                          nil,
+		``:                                                                                                  nil,
+	}
+	for in, want := range cases {
+		got, ok := parseClaudeAccount([]byte(in))
+		if (want == nil) != !ok || (want != nil && *got != *want) {
+			t.Errorf("parseClaudeAccount(%q) = %+v, %v; want %+v", in, got, ok, want)
+		}
+	}
+}
+
+func TestClaudeAccountRunsAuthStatus(t *testing.T) {
+	h := claudeHarness{bin: testenv.FakeClaude()}
+	a, err := h.Account(context.Background())
+	if err != nil || a == nil || !a.LoggedIn || a.Email != "test@maestrello.invalid" || a.SubscriptionType != "max" {
+		t.Fatalf("Account = %+v, %v", a, err)
+	}
+	// A logged-out CLI exits 1 but still answers.
+	t.Setenv("FAKE_CLAUDE_AUTH", "out")
+	if a, err := h.Account(context.Background()); err != nil || a == nil || a.LoggedIn {
+		t.Errorf("logged out: %+v, %v", a, err)
+	}
+	// A missing CLI is an error that names it.
+	_, err = claudeHarness{bin: filepath.Join(testenv.Testdata(), "no-such-claude")}.Account(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "no-such-claude") {
+		t.Errorf("missing CLI error = %v", err)
 	}
 }

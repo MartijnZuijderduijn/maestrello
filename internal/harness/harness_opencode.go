@@ -50,6 +50,11 @@ func newOpencodeHarness(bin string) opencodeHarness {
 
 func (opencodeHarness) Name() string { return "opencode" }
 
+// Account and ParseUsage: opencode has no account of its own (its providers carry
+// the credentials) and its stream has no usage-limit events, so Caps says neither.
+func (opencodeHarness) Account(context.Context) (*Account, error) { return nil, ErrNoAccount }
+func (opencodeHarness) ParseUsage([]byte) []UsageLimit            { return nil }
+
 func (opencodeHarness) Caps() Caps {
 	return Caps{
 		Resume: true, PermissionCallback: false, StructuredOutput: false, PerTurnEvents: true,

@@ -1,12 +1,15 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -24,6 +27,7 @@ func (claudeHarness) Name() string { return "claude" }
 func (claudeHarness) Caps() Caps {
 	return Caps{
 		Resume: true, PermissionCallback: true, StructuredOutput: true, PerTurnEvents: true,
+		Account: true, Usage: true,
 		Efforts:         []string{"low", "medium", "high", "xhigh", "max"},
 		PermissionModes: []string{"auto", "acceptEdits", "manual", "dontAsk", "plan", "bypassPermissions"},
 	}
@@ -186,7 +190,7 @@ func (claudeHarness) ParseEvent(line []byte) (HarnessEvent, error) {
 	if err := json.Unmarshal(line, &ev); err != nil {
 		return HarnessEvent{}, err
 	}
-	out := HarnessEvent{Kind: ev.Type, UsageInfo: strings.Contains(ev.Type, "rate_limit")}
+	out := HarnessEvent{Kind: ev.Type}
 	switch {
 	case ev.Type == "assistant":
 		out.Assistant = true
@@ -213,7 +217,7 @@ func (claudeHarness) ParseEvent(line []byte) (HarnessEvent, error) {
 				out.RateLimitMsg = ev.Result
 			}
 		}
-	case out.UsageInfo && rateLimitRejected(line):
+	case strings.Contains(ev.Type, "rate_limit") && rateLimitRejected(line):
 		out.RateLimited = true
 		out.RateLimitMsg = string(line)
 	}
@@ -242,4 +246,134 @@ func toolActivity(name string, input json.RawMessage) string {
 		}
 	}
 	return name
+}
+
+// Account runs `claude auth status --json` and parses it. A logged-out CLI may
+// exit non-zero but still print its JSON status, which counts as an answer.
+func (h claudeHarness) Account(ctx context.Context) (*Account, error) {
+	bin := h.bin
+	if bin == "" {
+		bin = "claude"
+	}
+	cmd := exec.CommandContext(ctx, bin, "auth", "status", "--json")
+	cmd.Env = ClaudeEnv()
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	runErr := cmd.Run()
+	if acct, ok := parseClaudeAccount(out.Bytes()); ok {
+		return acct, nil
+	}
+	if ctx.Err() != nil {
+		return nil, errors.New("claude auth status timed out")
+	}
+	if runErr != nil {
+		msg := strings.TrimSpace(errb.String())
+		if msg == "" {
+			msg = strings.TrimSpace(out.String())
+		}
+		if msg != "" {
+			return nil, fmt.Errorf("claude auth status: %v: %s", runErr, textutil.Tail(msg, 300))
+		}
+		return nil, fmt.Errorf("claude auth status: %v", runErr)
+	}
+	return nil, errors.New("claude auth status: unrecognised output")
+}
+
+// parseClaudeAccount reads `claude auth status` JSON leniently: unknown fields are
+// ignored, and a missing or mistyped field just stays empty.
+func parseClaudeAccount(data []byte) (*Account, bool) {
+	var m map[string]any
+	if json.Unmarshal(bytes.TrimSpace(data), &m) != nil || m == nil {
+		return nil, false
+	}
+	str := func(k string) string { s, _ := m[k].(string); return s }
+	logged, hasLogged := m["loggedIn"].(bool)
+	acct := &Account{
+		LoggedIn: logged, Email: str("email"), OrgName: str("orgName"), AuthMethod: str("authMethod"),
+		APIProvider: str("apiProvider"), SubscriptionType: str("subscriptionType"),
+	}
+	if acct.SubscriptionType == "" {
+		acct.SubscriptionType = str("planTier")
+	}
+	if !hasLogged && acct.Email == "" && acct.AuthMethod == "" {
+		return nil, false // some other JSON, not an auth status
+	}
+	if !hasLogged {
+		acct.LoggedIn = true
+	}
+	if !acct.LoggedIn {
+		return &Account{LoggedIn: false}, true
+	}
+	return acct, true
+}
+
+// ParseUsage reads a rate_limit_event's rate_limit_info: the per-window detail in
+// unifiedWindows when the CLI reports it, then the top-level info, which describes
+// the window named by rateLimitType (later entries win when the board merges).
+func (claudeHarness) ParseUsage(line []byte) []UsageLimit {
+	if !bytes.Contains(line, []byte("rate_limit_info")) {
+		return nil // cheap check first: almost every line carries no usage
+	}
+	var ev struct {
+		Info map[string]any `json:"rate_limit_info"`
+	}
+	if json.Unmarshal(line, &ev) != nil || ev.Info == nil {
+		return nil
+	}
+	info := ev.Info
+	var out []UsageLimit
+	if wins, ok := info["unifiedWindows"].(map[string]any); ok {
+		types := make([]string, 0, len(wins))
+		for typ := range wins {
+			types = append(types, typ)
+		}
+		sort.Strings(types)
+		for _, typ := range types {
+			wm, ok := wins[typ].(map[string]any)
+			if !ok || typ == "" {
+				continue
+			}
+			l := UsageLimit{Type: typ, ResetsAt: unixSecs(wm["resetsAt"])}
+			l.Status, _ = wm["status"].(string)
+			if f, ok := wm["utilization"].(float64); ok {
+				l.Utilization = &f
+			}
+			if f, ok := wm["surpassedThreshold"].(float64); ok {
+				l.SurpassedThreshold = &f
+			}
+			out = append(out, l)
+		}
+	}
+	typ, _ := info["rateLimitType"].(string)
+	if typ == "" {
+		typ = "unknown"
+	}
+	status, _ := info["status"].(string)
+	if status != "" || typ != "unknown" {
+		l := UsageLimit{Type: typ, Status: status, ResetsAt: unixSecs(info["resetsAt"]), OverageResetsAt: unixSecs(info["overageResetsAt"])}
+		if f, ok := info["utilization"].(float64); ok {
+			l.Utilization = &f
+		}
+		if f, ok := info["surpassedThreshold"].(float64); ok {
+			l.SurpassedThreshold = &f
+		}
+		l.OverageStatus, _ = info["overageStatus"].(string)
+		if b, ok := info["isUsingOverage"].(bool); ok {
+			l.IsUsingOverage = &b
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// unixSecs reads a reset time; milliseconds are converted to seconds.
+func unixSecs(v any) int64 {
+	f, ok := v.(float64)
+	if !ok || f <= 0 {
+		return 0
+	}
+	if f > 1e12 {
+		f /= 1000
+	}
+	return int64(f)
 }

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"maestrello/internal/model"
 )
@@ -22,8 +23,8 @@ import (
 //
 // A new adapter provides: command building (SessionCommand, RefineCommand),
 // event parsing (ParseEvent, ParseRefineResult), its capabilities (Caps) and
-// validation (ValidateEffort, ValidatePermissionMode), and registers itself in
-// harnesses. See "Harness adapters" in SPEC.md.
+// validation (ValidateEffort, ValidatePermissionMode), account and usage reporting
+// (Account, ParseUsage), and registers itself in harnesses. See "Harness adapters" in SPEC.md.
 type Harness interface {
 	// Name is the registry key, as stored in Settings.Harness and Card.Harness.
 	Name() string
@@ -44,6 +45,16 @@ type Harness interface {
 	ValidateEffort(effort string) error
 	// ValidatePermissionMode accepts the permission modes it knows, not "".
 	ValidatePermissionMode(mode string) error
+	// Account asks the CLI who it is logged in as, for the header. It runs the CLI
+	// and gives up when ctx ends; the board sets the timeout and never calls it
+	// per request. A logged-out CLI is an Account with LoggedIn false, not an
+	// error. A harness with Caps.Account false returns ErrNoAccount.
+	Account(ctx context.Context) (*Account, error)
+	// ParseUsage reads usage-limit updates (one per window) out of one stdout line,
+	// for the header. nil for a line that carries none, and always nil when
+	// Caps.Usage is false. It must not decide anything about the run: whether a
+	// run stops is HarnessEvent.RateLimited alone.
+	ParseUsage(line []byte) []UsageLimit
 }
 
 // Caps are the things a harness may not be able to do. When one is false the
@@ -53,6 +64,8 @@ type Caps struct {
 	PermissionCallback bool // asks the board's "permission" MCP tool before acting; else the permission mode is all there is
 	StructuredOutput   bool // refinement can return JSON matching a schema; else the board reads the schema JSON from the final text
 	PerTurnEvents      bool // the stream reports every turn; else the turn limit can't be enforced and cost/activity update only at the end
+	Account            bool // Account can say who the CLI is logged in as; else the header shows "account unknown"
+	Usage              bool // ParseUsage reads usage limits from the stream; else the header has no usage chips
 
 	Efforts         []string // allowed non-empty efforts
 	PermissionModes []string // allowed permission modes
@@ -109,8 +122,6 @@ type HarnessEvent struct {
 	RateLimited  bool   // the run was refused for a usage limit
 	RateLimitMsg string // what to show the user about it
 
-	UsageInfo bool // pass the raw line to recordRateLimit (header usage display only)
-
 	// SessionID is the id the CLI gave the session, for CLIs that cannot take a
 	// preset one: the runner saves it on the card so a later resume finds it.
 	SessionID string
@@ -131,10 +142,28 @@ type SessionChecker interface {
 }
 
 // harnesses are the known adapters, built without a binary path. The App builds
-// its own with the binaries it was started with (see App.harness).
-var harnesses = map[string]func(cfg HarnessConfig) Harness{
-	"claude":   func(cfg HarnessConfig) Harness { return claudeHarness{bin: cfg.Bin} },
-	"opencode": func(cfg HarnessConfig) Harness { return newOpencodeHarness(cfg.Bin) },
+// its own with the binaries it was started with (see App.harness). harnessesMu
+// guards it, because Register lets tests add an adapter while boards run.
+var (
+	harnessesMu sync.RWMutex
+	harnesses   = map[string]func(cfg HarnessConfig) Harness{
+		"claude":   func(cfg HarnessConfig) Harness { return claudeHarness{bin: cfg.Bin} },
+		"opencode": func(cfg HarnessConfig) Harness { return newOpencodeHarness(cfg.Bin) },
+	}
+)
+
+// Register adds an adapter to the registry and returns a function that removes it
+// again. The built-in adapters are registered above; this is for tests that need
+// an adapter with other capabilities.
+func Register(name string, mk func(cfg HarnessConfig) Harness) (unregister func()) {
+	harnessesMu.Lock()
+	defer harnessesMu.Unlock()
+	harnesses[name] = mk
+	return func() {
+		harnessesMu.Lock()
+		defer harnessesMu.Unlock()
+		delete(harnesses, name)
+	}
 }
 
 // harnessFor resolves a harness name for validation and parsing; "" is claude.
@@ -146,7 +175,9 @@ func Build(name string, bins map[string]string) (Harness, error) {
 	if name == "" {
 		name = Default
 	}
+	harnessesMu.RLock()
 	mk, ok := harnesses[name]
+	harnessesMu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("unknown harness")
 	}
@@ -184,4 +215,8 @@ func ContextDirs(items []model.ContextItem, root string) []string {
 }
 
 // Names lists the registered harnesses, sorted.
-func Names() []string { return slices.Sorted(maps.Keys(harnesses)) }
+func Names() []string {
+	harnessesMu.RLock()
+	defer harnessesMu.RUnlock()
+	return slices.Sorted(maps.Keys(harnesses))
+}

@@ -93,7 +93,7 @@ func Serve(o Options, ready func(baseURL string)) error {
 		return err
 	}
 	app.loadUsage()
-	go app.refreshAccount()      // never blocks startup; the header updates via SSE
+	go app.refreshAccounts()     // never blocks startup; the header updates via SSE
 	go app.refreshAvailability() // likewise: which harness CLIs work on this machine
 	if guard.Enabled() {
 		fmt.Printf("sandbox mode: confined to %s\n", guard.Root())
