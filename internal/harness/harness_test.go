@@ -325,14 +325,17 @@ func TestClaudeCaps(t *testing.T) {
 	if c := (claudeHarness{}).Caps(); !c.Account || !c.Usage {
 		t.Errorf("claude caps = %+v, want account and usage", c)
 	}
-	if c := (opencodeHarness{}).Caps(); c.Account || c.Usage {
-		t.Errorf("opencode caps = %+v, want neither account nor usage", c)
-	}
-	if a, err := (opencodeHarness{}).Account(context.Background()); a != nil || !errors.Is(err, ErrNoAccount) {
-		t.Errorf("opencode Account = %+v, %v", a, err)
-	}
-	if u := (opencodeHarness{}).ParseUsage([]byte(`{"rate_limit_info":{"status":"allowed","rateLimitType":"five_hour"}}`)); u != nil {
-		t.Errorf("opencode ParseUsage = %+v", u)
+	// Harnesses without an account lookup or usage events say so, and never fail.
+	for _, h := range []Harness{opencodeHarness{}, mistralHarness{}} {
+		if c := h.Caps(); c.Account || c.Usage {
+			t.Errorf("%s caps = %+v, want neither account nor usage", h.Name(), c)
+		}
+		if a, err := h.Account(context.Background()); a != nil || !errors.Is(err, ErrNoAccount) {
+			t.Errorf("%s Account = %+v, %v", h.Name(), a, err)
+		}
+		if u := h.ParseUsage([]byte(`{"rate_limit_info":{"status":"allowed","rateLimitType":"five_hour"}}`)); u != nil {
+			t.Errorf("%s ParseUsage = %+v", h.Name(), u)
+		}
 	}
 }
 

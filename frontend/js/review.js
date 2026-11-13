@@ -23,7 +23,7 @@ export async function loadDiffs(c) {
       }
       const empty = !d.diff && !d.log;
       return `<div class="repo"><div class="head"><b>${esc(d.repo.repo_path)}</b>
-        ${empty ? `<span class="meta">no changes — will be dropped</span>` : `<select data-repo="${d.repo.id}">${[["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
+        ${empty ? `<span class="meta">no changes — will be dropped</span>` : `<select data-repo="${d.repo.id}">${[["merge", `Merge into ${baseBranch(d.repo.base_ref)}`], ["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
           .map(([v, l]) => `<option value="${v}" ${v === (c.push_default || "local") ? "selected" : ""}>${l}</option>`).join("")}</select>`}</div>
         <div class="meta">${esc(d.repo.branch)} from ${esc(d.repo.base_ref)}</div>
         ${d.error ? `<div class="notice bad">${esc(d.error)}</div>` : ""}
@@ -33,6 +33,8 @@ export async function loadDiffs(c) {
   } catch (e) { el.textContent = e.message; }
   finally { el.removeAttribute("aria-busy"); }
 }
+// The local branch a base ref such as origin/main stands for.
+function baseBranch(ref) { return (ref || "").replace(/^origin\//, ""); }
 function colorDiff(s) {
   return s.split("\n").map((l) => {
     const e = esc(l);
@@ -75,17 +77,18 @@ export function sendBack() {
   if (!text) return alert("Write some feedback first.");
   act(detail.card.id, "send-back", { text });
 }
-export function approve() {
+export function approve(refine = false) {
   const actions = {};
   document.querySelectorAll("select[data-repo]").forEach((s) => actions[s.dataset.repo] = s.value);
   // A plan creates one card per ticked task.
   const tasks = [...document.querySelectorAll("input[data-task]:checked")].map((i) => +i.dataset.task);
-  act(detail.card.id, "approve", kindOf(detail.card) === "plan" ? { actions, tasks } : { actions });
+  act(detail.card.id, "approve", kindOf(detail.card) === "plan" ? { actions, tasks, ...(refine ? { refine } : {}) } : { actions });
 }
 // The plan's approve button says how many cards it will create.
 export function planSelection() {
   const n = document.querySelectorAll("input[data-task]:checked").length;
   $("#approve-btn").textContent = `Create ${n} card${n === 1 ? "" : "s"}`;
+  const b = $("#approve-refine-btn"); if (b) b.textContent = `Create ${n} and refine`;
 }
 export function discard() {
   if (confirm("Discard this card? Its worktrees and branches are deleted.")) act(detail.card.id, "discard");

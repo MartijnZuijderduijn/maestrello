@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { closeDrawer, openDrawer } from "./drawer.js";
 import { readToolDefaults, settingsFields, toolDefaultsGrid } from "./forms.js";
+import { syncExclusive } from "./exclusive.js";
 import { harnessAvailability, harnessInfo, modelSelect } from "./harness.js";
 import { pathField } from "./picker.js";
 import { cards, setOpenId } from "./state.js";
@@ -14,8 +15,8 @@ export async function openSettings() {
     ${settingsFields({ harness: s.harness, model: s.default_model, effort: s.default_effort, permission_mode: s.default_permission_mode,
       max_turns: s.default_max_turns, max_minutes: s.default_max_minutes, push_default: s.default_push_default })}
     <label class="check"><input type="checkbox" id="s-autorun" ${s.default_auto_run ? "checked" : ""}> Auto-run after refinement by default</label>
-    <label class="check"><input type="checkbox" id="s-skip" ${s.default_skip_refinement ? "checked" : ""}> Skip refinement by default (new cards go straight to Ready with their own text as the prompt)</label>
-    <label class="check"><input type="checkbox" id="s-automodel" ${s.auto_model ? "checked" : ""}> Automatic model selection by default for new cards (each card can switch it: the refiner picks the smallest capable model and adapter, and the manual model is only the fallback)</label>
+    <label class="check"><input type="checkbox" id="s-skip" onchange="settingsRunFlagsChanged('skip')" ${s.default_skip_refinement ? "checked" : ""}> Skip refinement by default (new cards go straight to Ready with their own text as the prompt)</label>
+    <label class="check"><input type="checkbox" id="s-automodel" onchange="settingsRunFlagsChanged('auto')" ${s.auto_model && !s.default_skip_refinement ? "checked" : ""}> Automatic model selection by default for new cards (each card can switch it: the refiner picks the smallest capable model and adapter, and the manual model is only the fallback)</label>
     <label>Model capability and cost (JSON, <code>"harness/model": {"tier": 1-5, "cost": relative, 0 = free}</code>; adds to the built-in claude defaults)</label>
     <textarea id="s-modelinfo" rows="4">${esc(JSON.stringify(s.model_info || {}, null, 1))}</textarea>
     <div class="row">
@@ -48,6 +49,7 @@ export async function saveProjectSettings() {
     alert("Saved settings of project " + p.name);
   } catch (e) { alert(e.message); }
 }
+export function settingsRunFlagsChanged(changed) { syncExclusive($("#s-skip"), $("#s-automodel"), changed); }
 export async function saveSettings() {
   try {
     let kinds;

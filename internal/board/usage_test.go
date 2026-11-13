@@ -133,9 +133,12 @@ func TestAccountEndpoint(t *testing.T) {
 	if c2 := getClaude(t, app, ""); c2.Account == nil || c2.Account.Email != want.Email {
 		t.Errorf("cached snapshot = %+v", c2)
 	}
-	// opencode has no account lookup: it stays unknown, without an error.
-	if oc := entryOf(t, getAccount(t, app, "?refresh=1"), "opencode"); oc.Account != nil || oc.AccountError != "" || oc.CheckedAt != nil || oc.AccountSupported || oc.UsageSupported {
-		t.Errorf("opencode entry = %+v", oc)
+	// opencode and mistral have no account lookup: they stay unknown, without an error.
+	after := getAccount(t, app, "?refresh=1")
+	for _, name := range []string{"opencode", "mistral"} {
+		if e := entryOf(t, after, name); e.Account != nil || e.AccountError != "" || e.CheckedAt != nil || e.AccountSupported || e.UsageSupported || len(e.Limits) != 0 {
+			t.Errorf("%s entry = %+v", name, e)
+		}
 	}
 }
 
@@ -234,7 +237,7 @@ func TestRefreshAccountsAtStartup(t *testing.T) {
 	if c := entryOf(t, s, "other"); c.Account == nil || c.CheckedAt == nil {
 		t.Errorf("other not refreshed: %+v", c)
 	}
-	for _, name := range []string{"nocaps", "opencode"} {
+	for _, name := range []string{"nocaps", "opencode", "mistral"} {
 		if c := entryOf(t, s, name); c.Account != nil || c.CheckedAt != nil || c.AccountError != "" {
 			t.Errorf("%s was refreshed without the capability: %+v", name, c)
 		}
@@ -269,8 +272,10 @@ func TestRateLimitEventRecorded(t *testing.T) {
 		week.SurpassedThreshold == nil || week.ResetsAt <= five.ResetsAt {
 		t.Errorf("seven_day = %+v", week)
 	}
-	if l := entryOf(t, s, "opencode").Limits; len(l) != 0 {
-		t.Errorf("opencode limits = %+v", l)
+	for _, name := range []string{"opencode", "mistral"} {
+		if l := entryOf(t, s, name).Limits; len(l) != 0 {
+			t.Errorf("%s limits = %+v", name, l)
+		}
 	}
 
 	// A usage event reached open boards: the whole snapshot, claude's limits in it.
@@ -388,12 +393,16 @@ func TestHarnessWithoutAccountOrUsage(t *testing.T) {
 
 	// Neither a refresh nor a stream makes it fail or record anything.
 	streamFor(t, app, "nocaps", rateLine)
+	streamFor(t, app, "mistral", rateLine) // a built-in adapter without usage events
 	app.recordUsage("claude", nil)
 	for _, q := range []string{"", "?refresh=1", "?harness=nocaps&refresh=1"} {
 		e := entryOf(t, getAccount(t, app, q), "nocaps")
 		if e.Account != nil || e.AccountError != "" || e.CheckedAt != nil || len(e.Limits) != 0 || e.AccountSupported || e.UsageSupported || e.Limits == nil {
 			t.Errorf("nocaps entry for %q = %+v", q, e)
 		}
+	}
+	if e := entryOf(t, getAccount(t, app, "?harness=mistral&refresh=1"), "mistral"); e.Account != nil || e.AccountError != "" || len(e.Limits) != 0 {
+		t.Errorf("mistral entry = %+v", e)
 	}
 	if raw, _ := app.store.GetKV(usageSettingKey); raw != "" {
 		t.Errorf("usage_limits written for a harness without usage: %q", raw)

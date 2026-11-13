@@ -164,3 +164,25 @@ func TestResolveMissingConfig(t *testing.T) {
 		t.Errorf("old settings blob: %+v", got)
 	}
 }
+
+func TestSkipAndAutoModelExclusiveInLayers(t *testing.T) {
+	g := baseSettings()
+	g.DefaultSkipRefinement = true
+	// A more specific layer that turns automatic selection on takes over from the skip default.
+	got, _ := resolveLayers(g, &model.LayerSettings{Overrides: model.Overrides{AutoModel: bp(true)}}, model.KindCode)
+	if got.DefaultSkipRefinement || !got.AutoModel {
+		t.Errorf("auto model layer: skip=%v auto=%v", got.DefaultSkipRefinement, got.AutoModel)
+	}
+	// And the other way round.
+	g = baseSettings()
+	g.AutoModel = true
+	got, _ = resolveLayers(g, &model.LayerSettings{Overrides: model.Overrides{SkipRefinement: bp(true)}}, model.KindCode)
+	if !got.DefaultSkipRefinement || got.AutoModel {
+		t.Errorf("skip layer: skip=%v auto=%v", got.DefaultSkipRefinement, got.AutoModel)
+	}
+	// A layer that sets both is refused.
+	l := model.LayerSettings{Overrides: model.Overrides{SkipRefinement: bp(true), AutoModel: bp(true)}}
+	if ValidateLayer(l, "project") == nil {
+		t.Error("layer with both accepted")
+	}
+}

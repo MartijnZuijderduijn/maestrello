@@ -1,7 +1,8 @@
 import { api } from "./api.js";
 import { openCard } from "./card.js";
 import { openDrawer, sec } from "./drawer.js";
-import { harnessInfo, harnessSelect, harnesses, modelSelect } from "./harness.js";
+import { syncExclusive } from "./exclusive.js";
+import { harnessInfo, harnessSelect, harnesses, modelSelect, autoModelChanged } from "./harness.js";
 import { KINDS, kindOf } from "./kinds.js";
 import { FILE, FOLDER, pathField, pickPath } from "./picker.js";
 import { projects } from "./projects.js";
@@ -20,7 +21,7 @@ export function settingsFields(c) {
     <div class="row">
       <div><label>Max turns</label><input id="f-turns" type="number" min="0" value="${c.max_turns}"></div>
       <div><label>Max minutes</label><input id="f-minutes" type="number" min="0" value="${c.max_minutes}"></div>
-      <div><label>Push default</label><select id="f-push">${[["", "decide at review"], ["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
+      <div><label>Push default</label><select id="f-push">${[["", "decide at review"], ["merge", "merge into base"], ["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
         .map(([v, l]) => `<option value="${v}" ${v === c.push_default ? "selected" : ""}>${l}</option>`).join("")}</select></div>
     </div>`;
 }
@@ -126,9 +127,9 @@ function cardOptions(c, isNew) {
     <label>Root folder</label>${pathField("f-root", c.root_folder, "/path/to/folder/with/repos")}
     <div id="refine-opts">
     <label class="check"><input type="checkbox" id="f-autorun" ${c.auto_run ? "checked" : ""}> Run automatically after refinement (skip review in Ready)</label>
-    <label class="check"><input type="checkbox" id="f-automodel" onchange="autoModelChanged()" ${c.auto_model ? "checked" : ""}> Automatic model: the refiner picks the smallest capable model and adapter (the manual model is the fallback)</label>
+    <label class="check"><input type="checkbox" id="f-automodel" onchange="autoModelChanged()" ${c.auto_model && !c.skip_refinement ? "checked" : ""} ${c.skip_refinement && c.status && c.status !== "todo" ? "disabled" : ""}> Automatic model: the refiner picks the smallest capable model and adapter (the manual model is the fallback)</label>
     <label class="check"><input type="checkbox" id="f-deep" ${c.deep_refinement ? "checked" : ""}> Deeper refinement (explore code)</label>
-    ${!c.status || c.status === "todo" ? `<label class="check"><input type="checkbox" id="f-skip" ${c.skip_refinement ? "checked" : ""} onchange="skipChanged()"> Skip refinement (${skipText}; the card goes straight to Ready)</label>` : ""}
+    ${!c.status || c.status === "todo" ? `<label class="check"><input type="checkbox" id="f-skip" ${c.skip_refinement ? "checked" : ""} onchange="skipChanged(true)"> Skip refinement (${skipText}; the card goes straight to Ready)</label>` : ""}
     </div>
     ${settingsFields(c)}
     ${toolsGroup(c)}
@@ -151,7 +152,9 @@ export function readForm() {
 // A card that skips refinement has nothing to refine, so the refine button is off while the box is ticked.
 // A chat never refines either, so its refinement options are hidden.
 const noRefine = () => $("#f-kind")?.value === "chat" || !!$("#f-skip")?.checked;
-export function skipChanged() { const b = $("#create-refine"); if (b) b.disabled = noRefine(); }
+export function skipChanged(toggled) {
+  if (toggled) { syncExclusive($("#f-skip"), $("#f-automodel"), "skip"); autoModelChanged(); }
+  const b = $("#create-refine"); if (b) b.disabled = noRefine(); }
 export function kindChanged() {
   const o = $("#refine-opts"); if (o) o.hidden = $("#f-kind").value === "chat";
   const g = $("#ctx-group"); if (g) g.hidden = $("#f-kind").value === "chat";

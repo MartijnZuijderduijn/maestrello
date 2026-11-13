@@ -394,3 +394,25 @@ func TestChatHidesRefinementOnEdit(t *testing.T) {
 		t.Errorf("a Todo card edited into a chat should go straight to Ready: %+v", got)
 	}
 }
+
+func TestPlanApproveAndRefine(t *testing.T) {
+	dir := testenv.Dir(t)
+	app := newTestApp(t, dir)
+	c := kindCard(t, app, kindRoot(t, dir), model.KindPlan, "PLAN d")
+	app.Run(c.ID)
+	waitStatus(t, app, c.ID, model.StatusReview)
+	if err := app.ApproveAndRefine(c.ID, nil, []int{5}); err == nil {
+		t.Error("an out-of-range task was accepted")
+	}
+	if all, _ := app.store.ListCards(); len(all) != 1 {
+		t.Fatalf("a refused approval created cards: %d", len(all))
+	}
+	if err := app.ApproveAndRefine(c.ID, nil, []int{0}); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := app.store.ListCards()
+	if len(all) != 2 {
+		t.Fatalf("%d cards", len(all))
+	}
+	waitStatus(t, app, all[1].ID, model.StatusReady)
+}

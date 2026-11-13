@@ -18,7 +18,7 @@ import (
 
 // Options says where a board listens, keeps its data and which sandbox and agent binaries it uses.
 type Options struct {
-	Addr, DataDir, SandboxRoot, ClaudeBin, OpencodeBin string
+	Addr, DataDir, SandboxRoot, ClaudeBin, OpencodeBin, MistralBin string
 }
 
 // Resolve works out the guard and data dir that o describes.
@@ -84,6 +84,7 @@ func Serve(o Options, ready func(baseURL string)) error {
 		baseURL:     "http://" + ln.Addr().String(),
 		claudeBin:   o.ClaudeBin,
 		opencodeBin: o.OpencodeBin,
+		mistralBin:  o.MistralBin,
 		runs:        map[int64]*Run{},
 		waiters:     map[int64]chan inputReply{},
 		quit:        make(chan struct{}),

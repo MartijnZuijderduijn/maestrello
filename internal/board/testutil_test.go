@@ -28,9 +28,10 @@ func newTestApp(t *testing.T, dir string) *App {
 	}
 	fake := testenv.FakeClaude()
 	fakeOC := testenv.FakeOpencode()
+	fakeMV := testenv.FakeMistral()
 	app := &App{
 		store: store, hub: NewHub(), guard: guard, git: gitops.New(guard),
-		dataDir: dataDir, claudeBin: fake, opencodeBin: fakeOC,
+		dataDir: dataDir, claudeBin: fake, opencodeBin: fakeOC, mistralBin: fakeMV,
 		runs: map[int64]*Run{}, waiters: map[int64]chan inputReply{}, quit: make(chan struct{}),
 	}
 	srv := httptest.NewServer(app.routes())

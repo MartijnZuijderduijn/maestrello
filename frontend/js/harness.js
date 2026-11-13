@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { harnessIcon } from "./hicon.js";
 import { refreshToolSupport } from "./forms.js";
+import { syncExclusive } from "./exclusive.js";
 import { openSettings } from "./settings.js";
 import { EFFORTS, MODES, openId } from "./state.js";
 import { $, esc, select } from "./util.js";
@@ -11,6 +12,7 @@ let models = ["sonnet", "opus", "haiku"];
 export let harnesses = [
   { name: "claude", efforts: EFFORTS, permission_modes: MODES, available: true, version: "", error: "", models: [] },
   { name: "opencode", efforts: [], permission_modes: ["auto", "plan"], available: true, version: "", error: "", models: [] },
+  { name: "mistral", efforts: [], permission_modes: ["auto", "plan"], available: true, version: "", error: "", models: [] },
 ];
 export { harnessIcon };
 export const harnessInfo = (name) => harnesses.find((h) => h.name === name) || harnesses[0];
@@ -54,6 +56,8 @@ export function modelSelect(id, value, h = harnesses[0], auto = false) {
 const AUTO_MODEL_HINT = "Automatic model selection is on for this card: the refiner picks the model (the manual model is only the fallback)";
 // Ticking the card's box disables or enables its manual model select at once.
 export function autoModelChanged() {
+  syncExclusive($("#f-skip"), $("#f-automodel"), "auto");
+  if ($("#create-refine")) $("#create-refine").disabled = $("#f-kind")?.value === "chat" || !!$("#f-skip")?.checked;
   const on = $("#f-automodel").checked, el = $("#f-model");
   el.disabled = on; el.title = on ? AUTO_MODEL_HINT : "";
 }
