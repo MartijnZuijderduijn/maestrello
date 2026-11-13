@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -50,7 +51,7 @@ func (a *App) Diffs(id int64) ([]RepoDiff, error) {
 	return out, nil
 }
 
-// Approve applies a per-repo action (local, push, pr), removes the worktrees and closes the card.
+// Approve applies a per-repo action (merge, local, push, pr), removes the worktrees and closes the card.
 // Repos without changes are dropped. A plan card creates all of its proposed tasks as cards.
 func (a *App) Approve(id int64, actions map[int64]string) error {
 	return a.ApproveSelected(id, actions, nil)
@@ -60,18 +61,43 @@ func (a *App) Approve(id int64, actions map[int64]string) error {
 // the proposed tasks to create as Todo cards. nil means all of them, an empty list none.
 // Cards of other kinds have no tasks, so for them a selection is an error.
 func (a *App) ApproveSelected(id int64, actions map[int64]string, tasks []int) error {
-	if a.liveRun(id) != nil {
-		return fmt.Errorf("the agent is still running")
-	}
-	card, err := a.store.GetCard(id)
+	_, err := a.approveSelected(id, actions, tasks)
+	return err
+}
+
+// ApproveAndRefine is ApproveSelected followed by refining every Todo card the plan created.
+// Approval errors stop before any refinement; refinement errors are returned after all cards
+// were tried (the plan itself is already approved by then).
+func (a *App) ApproveAndRefine(id int64, actions map[int64]string, tasks []int) error {
+	made, err := a.approveSelected(id, actions, tasks)
 	if err != nil {
 		return err
 	}
+	var errs []error
+	for _, c := range made {
+		if c.EffectiveKind() == model.KindChat {
+			continue // a chat is never refined
+		}
+		if err := a.Refine(c.ID); err != nil {
+			errs = append(errs, fmt.Errorf("#%d: %w", c.ID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (a *App) approveSelected(id int64, actions map[int64]string, tasks []int) ([]*model.Card, error) {
+	if a.liveRun(id) != nil {
+		return nil, fmt.Errorf("the agent is still running")
+	}
+	card, err := a.store.GetCard(id)
+	if err != nil {
+		return nil, err
+	}
 	if card.Status != model.StatusReview {
-		return fmt.Errorf("card is %s; only review cards can be approved", card.Status)
+		return nil, fmt.Errorf("card is %s; only review cards can be approved", card.Status)
 	}
 	if tasks != nil && card.EffectiveKind() != model.KindPlan {
-		return fmt.Errorf("only a plan card has tasks to select")
+		return nil, fmt.Errorf("only a plan card has tasks to select")
 	}
 	var made []*model.Card
 	if card.EffectiveKind() == model.KindPlan {
@@ -80,7 +106,7 @@ func (a *App) ApproveSelected(id int64, actions map[int64]string, tasks []int) e
 			if len(made) > 0 {
 				a.note(id, "plan approval stopped after creating %s: %v", cardRefs(made), err)
 			}
-			return err
+			return nil, err
 		}
 		if len(made) > 0 {
 			a.note(id, "plan approved: created %s", cardRefs(made))
@@ -89,12 +115,12 @@ func (a *App) ApproveSelected(id int64, actions map[int64]string, tasks []int) e
 		}
 	}
 	if err := a.closeRepos(card, actions); err != nil {
-		return err
+		return nil, err
 	}
 	a.cleanupWorkspace(id)
 	a.releaseLeases(id)
 	a.update(id, func(c *model.Card) { c.Status = model.StatusDone; c.Activity = "approved" })
-	return nil
+	return made, nil
 }
 
 // cardRefs lists cards as "#3, #4".
@@ -152,9 +178,12 @@ func (a *App) closeRepos(card *model.Card, actions map[int64]string) error {
 		if action == "" {
 			action = "local"
 		}
+		merged := false
 		switch action {
 		case "local":
 			r.Result = "kept local on " + r.Branch
+		case "merge":
+			merged = a.mergeLocal(ctx, card, r, orig)
 		case "push", "pr":
 			if err := a.git.Push(ctx, orig, r.Branch); err != nil {
 				return fmt.Errorf("%s: push: %w", r.RepoPath, err)
@@ -175,6 +204,11 @@ func (a *App) closeRepos(card *model.Card, actions map[int64]string) error {
 		}
 		if err := a.git.RemoveWorktree(ctx, orig, r.WorktreePath); err != nil {
 			return fmt.Errorf("%s: %w", r.RepoPath, err)
+		}
+		if merged { // the branch is free once its worktree is gone
+			if err := a.git.DeleteBranch(ctx, orig, r.Branch); err != nil {
+				r.Result += "; could not delete " + r.Branch + ": " + err.Error()
+			}
 		}
 		a.store.SaveRepo(r)
 		a.note(id, "%s: %s", r.RepoPath, r.Result)
@@ -226,6 +260,44 @@ func (a *App) reopenRepos(card *model.Card) error {
 		a.note(card.ID, "%s: reopened", r.RepoPath)
 	}
 	return nil
+}
+
+// mergeLocal merges the card branch into the base branch in the original checkout, only when
+// that checkout is on the base branch and has no uncommitted changes to tracked files. It never
+// pushes. It sets r.Result and reports whether the merge happened; if not, the branch is kept
+// (a conflict is aborted and also noted on the card). The caller deletes a merged branch.
+func (a *App) mergeLocal(ctx context.Context, card *model.Card, r *model.CardRepo, orig string) bool {
+	base := strings.TrimPrefix(r.BaseRef, "origin/")
+	keep := func(reason string) bool {
+		r.Result = fmt.Sprintf("kept local on %s: not merged, %s", r.Branch, reason)
+		return false
+	}
+	cur, err := a.git.CurrentBranch(ctx, orig)
+	if err != nil {
+		return keep(err.Error())
+	}
+	if cur != base {
+		if cur == "" {
+			cur = "a detached HEAD"
+		}
+		return keep(fmt.Sprintf("the checkout is on %s, not %s", cur, base))
+	}
+	clean, err := a.git.TrackedClean(ctx, orig)
+	if err != nil {
+		return keep(err.Error())
+	}
+	if !clean {
+		return keep("the checkout has uncommitted changes")
+	}
+	if err := a.git.Merge(ctx, orig, r.Branch, fmt.Sprintf("maestrello: merge #%d %s", card.ID, card.Title)); err != nil {
+		if errors.Is(err, gitops.ErrMergeConflict) {
+			a.note(card.ID, "%s: merging %s into %s conflicted and was aborted: %v", r.RepoPath, r.Branch, base, err)
+			return keep("merge conflict, aborted: " + err.Error())
+		}
+		return keep(err.Error())
+	}
+	r.Result = "merged into " + base
+	return true
 }
 
 // Discard throws away all of the card's worktrees and branches and closes the card.

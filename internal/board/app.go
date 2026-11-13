@@ -26,6 +26,7 @@ type App struct {
 	baseURL     string // where agents reach the board's MCP endpoint
 	claudeBin   string // per-adapter CLI paths, see harnessBins
 	opencodeBin string
+	mistralBin  string
 
 	mu       sync.Mutex
 	runs     map[int64]*Run            // live agent sessions by card
@@ -41,7 +42,7 @@ type App struct {
 	leaseTTL time.Duration  // 0 means defaultLeaseTTL
 	boardID  string         // identifies this board process in lease files
 
-	// Who the claude CLI is logged in as and the latest usage limits (usage.go).
+	// Who each harness's CLI is logged in as and its latest usage limits (usage.go).
 	usage usageState
 
 	// Whether each harness's CLI is usable on this machine (harness_avail.go).

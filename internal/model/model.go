@@ -62,7 +62,7 @@ type Project struct {
 	Settings LayerSettings `json:"settings"`
 }
 
-var ValidPush = map[string]bool{"": true, "local": true, "push": true, "pr": true}
+var ValidPush = map[string]bool{"": true, "local": true, "merge": true, "push": true, "pr": true}
 
 // Card statuses, in board order.
 const (
@@ -201,4 +201,23 @@ const DefaultHarness = "claude"
 var Statuses = map[string]bool{
 	StatusTodo: true, StatusRefining: true, StatusReady: true, StatusRunning: true,
 	StatusNeedsInput: true, StatusReview: true, StatusFailed: true, StatusDone: true,
+}
+
+// Skipping refinement and automatic model selection exclude each other: the refiner is what picks
+// the model, so a card that skips it has no automatic choice to make. Skipping wins wherever both
+// are found (stored cards and settings, layers); a new explicit choice of one over the other is
+// resolved by the caller before it normalises.
+
+// NormalizeRunFlags clears AutoModel on a card that skips refinement.
+func (c *Card) NormalizeRunFlags() {
+	if c.SkipRefinement {
+		c.AutoModel = false
+	}
+}
+
+// NormalizeRunFlags clears the AutoModel default when new cards skip refinement by default.
+func (s *Settings) NormalizeRunFlags() {
+	if s.DefaultSkipRefinement {
+		s.AutoModel = false
+	}
 }

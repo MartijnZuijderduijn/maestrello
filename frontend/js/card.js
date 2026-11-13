@@ -86,6 +86,7 @@ function renderDetail() {
       }
       body += `
         <div class="actions"><button class="primary" id="approve-btn" onclick="approve()" ${live ? "disabled title='agent still finishing'" : ""}>${kind === "plan" ? `Create ${tasks.length} cards` : "Approve"}</button>
+          ${kind === "plan" ? `<button class="primary" id="approve-refine-btn" onclick="approve(true)" ${live ? "disabled title='agent still finishing'" : ""}>Create ${tasks.length} and refine</button>` : ""}
           <button class="danger" onclick="discard()">Discard</button></div>
         <label>Send back with feedback</label><textarea id="f-feedback" rows="3"></textarea>
         <div class="actions"><button onclick="sendBack()">Send back</button></div>`;

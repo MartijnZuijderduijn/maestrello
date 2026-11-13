@@ -3,6 +3,7 @@ package gitops
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -227,4 +228,47 @@ func (g *Git) CreatePR(ctx context.Context, repo, branch, base, title, body stri
 		return "", fmt.Errorf("gh pr create: %w: %s", err, strings.TrimSpace(errb.String()))
 	}
 	return strings.TrimSpace(out.String()), nil
+}
+
+// CurrentBranch returns the branch checked out in repo, or "" on a detached HEAD.
+func (g *Git) CurrentBranch(ctx context.Context, repo string) (string, error) {
+	out, err := g.run(ctx, repo, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		if _, herr := g.run(ctx, repo, "rev-parse", "--verify", "--quiet", "HEAD"); herr == nil {
+			return "", nil // detached
+		}
+		return "", err
+	}
+	return out, nil
+}
+
+// TrackedClean reports whether repo has no uncommitted changes to tracked files
+// (untracked files do not count).
+func (g *Git) TrackedClean(ctx context.Context, repo string) (bool, error) {
+	out, err := g.run(ctx, repo, "status", "--porcelain", "--untracked-files=no")
+	if err != nil {
+		return false, err
+	}
+	return out == "", nil
+}
+
+// ErrMergeConflict is returned by Merge when the merge conflicted and was aborted.
+var ErrMergeConflict = errors.New("merge conflict")
+
+// Merge merges branch into the branch checked out in repo: a fast-forward when possible,
+// otherwise a merge commit with msg. On a conflict the merge is aborted, leaving repo as
+// it was, and the error wraps ErrMergeConflict with the conflicting files.
+func (g *Git) Merge(ctx context.Context, repo, branch, msg string) error {
+	_, err := g.run(ctx, repo, "merge", "--quiet", "--ff", "-m", msg, branch)
+	if err == nil {
+		return nil
+	}
+	if _, perr := g.run(ctx, repo, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); perr != nil {
+		return err // failed before a merge started
+	}
+	files, _ := g.run(ctx, repo, "diff", "--name-only", "--diff-filter=U")
+	if _, aerr := g.run(ctx, repo, "merge", "--abort"); aerr != nil {
+		return fmt.Errorf("merge conflict, and aborting failed: %w", aerr)
+	}
+	return fmt.Errorf("%w in %s", ErrMergeConflict, strings.Join(strings.Fields(files), ", "))
 }

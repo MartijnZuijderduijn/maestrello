@@ -508,6 +508,7 @@ func (a *App) watchLimits(card *model.Card, run *Run, done chan struct{}) {
 // error and rate-limit outcome finish settles the card with.
 func (a *App) readStream(id int64, run *Run, h harness.Harness, r io.Reader) {
 	card, _ := a.store.GetCard(id)
+	usage := h.Caps().Usage
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	for sc.Scan() {
@@ -532,8 +533,11 @@ func (a *App) readStream(id int64, run *Run, h harness.Harness, r io.Reader) {
 				}
 			})
 		}
-		if ev.UsageInfo {
-			a.recordRateLimit(line) // header usage display only; never stops the run
+		if usage {
+			// Header usage display only; never changes the card or stops the run.
+			if ups := h.ParseUsage(line); len(ups) > 0 {
+				a.recordUsage(card.Harness, ups) // "" is the default harness
+			}
 		}
 
 		switch {

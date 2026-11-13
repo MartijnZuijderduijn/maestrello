@@ -3,6 +3,7 @@ package board
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"maestrello/internal/model"
@@ -89,20 +90,24 @@ func TestDeleteSingleCard(t *testing.T) {
 	app := newTestApp(t, dir)
 	done := cardWithStatus(t, app, dir, model.StatusDone)
 	review := cardWithStatus(t, app, dir, model.StatusReview)
+	failed := cardWithStatus(t, app, dir, model.StatusFailed)
+	refining := cardWithStatus(t, app, dir, model.StatusRefining)
 
-	if code := sendJSON(t, "DELETE", fmt.Sprintf("%s/api/cards/%d", app.baseURL, done.ID), nil, nil); code != 204 {
-		t.Errorf("delete done card = %d, want 204", code)
+	for _, c := range []*model.Card{done, review, failed} {
+		if code := sendJSON(t, "DELETE", fmt.Sprintf("%s/api/cards/%d", app.baseURL, c.ID), nil, nil); code != 204 {
+			t.Errorf("delete %s card = %d, want 204", c.Status, code)
+		}
 	}
 	var e map[string]string
-	if code := sendJSON(t, "DELETE", fmt.Sprintf("%s/api/cards/%d", app.baseURL, review.ID), nil, &e); code != 400 ||
-		e["error"] != "only todo, ready and done cards can be deleted" {
-		t.Errorf("delete review card = %d %v, want 400", code, e)
+	if code := sendJSON(t, "DELETE", fmt.Sprintf("%s/api/cards/%d", app.baseURL, refining.ID), nil, &e); code != 400 ||
+		!strings.Contains(e["error"], "being refined") {
+		t.Errorf("delete refining card = %d %v, want 400", code, e)
 	}
 	if code := sendJSON(t, "DELETE", app.baseURL+"/api/cards/99999", nil, nil); code != 404 {
 		t.Errorf("delete missing card = %d, want 404", code)
 	}
 	ids := cardIDs(t, app)
-	if len(ids) != 1 || !ids[review.ID] {
-		t.Errorf("cards left = %v, want only #%d", ids, review.ID)
+	if len(ids) != 1 || !ids[refining.ID] {
+		t.Errorf("cards left = %v, want only #%d", ids, refining.ID)
 	}
 }

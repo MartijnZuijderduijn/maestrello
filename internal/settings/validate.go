@@ -66,6 +66,8 @@ func validateOverrides(o model.Overrides, where string) error {
 		return wrap(errors.New("invalid permission mode"))
 	case o.PushDefault != nil && !model.ValidPush[*o.PushDefault]:
 		return wrap(errors.New("invalid push default"))
+	case o.SkipRefinement != nil && *o.SkipRefinement && o.AutoModel != nil && *o.AutoModel:
+		return wrap(errors.New("skip refinement and automatic model selection exclude each other"))
 	case o.MaxTurns != nil && *o.MaxTurns < 0, o.MaxMinutes != nil && *o.MaxMinutes < 0:
 		return wrap(errors.New("limits must not be negative"))
 	}
@@ -116,6 +118,8 @@ func Validate(st model.Settings) error {
 		return errors.New("invalid default permission mode")
 	case !model.ValidPush[st.DefaultPushDefault]:
 		return errors.New("invalid default push default")
+	case st.DefaultSkipRefinement && st.AutoModel:
+		return errors.New("skip refinement and automatic model selection exclude each other")
 	case st.DefaultMaxTurns < 0 || st.DefaultMaxMinutes < 0:
 		return errors.New("limits must not be negative")
 	}

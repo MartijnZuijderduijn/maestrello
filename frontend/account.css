@@ -7,7 +7,9 @@ header button.gear svg { display: block; transition: transform var(--t-med) var(
 header button.gear:hover svg, header button.gear:focus svg, header button.gear:focus-visible svg { transform: rotate(45deg); }
 header button.gear:hover, header button.gear:focus-visible { border-color: var(--accent); color: var(--accent); }
 header button.acct:hover { border-color: var(--border); }
-header .acct { min-width: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; font-size: 12px; color: var(--muted); }
+header .acct { min-width: 0; display: flex; align-items: center; gap: 14px; white-space: nowrap; overflow: hidden; font-size: 12px; color: var(--muted); }
+header .acct .agrp { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
+header .acct .hicon { margin-right: -2px; }
 header .acct .email { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
 header .acct .email.off { color: var(--muted); font-style: italic; }
 header .acct .lims { flex: 0 1 auto; min-width: 0; display: flex; gap: 6px; overflow: hidden; }
@@ -38,6 +40,8 @@ header .acct .lim.bad { animation: chip-pulse 2s ease-in-out infinite; }
 .acct-pop dt { color: var(--muted); } .acct-pop dd { margin: 0; overflow-wrap: anywhere; }
 .acct-pop .win { border-top: 1px solid var(--border); padding: 6px 0; }
 .acct-pop .win .meta { margin-top: 2px; }
+.acct-pop .hsec + .hsec { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 12px; }
+.acct-pop .head h4 { margin: 0; }
 .acct-pop .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .acct-pop .head button { font-size: 12px; padding: 2px 9px; }
 @media (max-width: 600px) {

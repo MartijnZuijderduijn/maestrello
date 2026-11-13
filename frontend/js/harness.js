@@ -1,5 +1,7 @@
 import { api } from "./api.js";
+import { harnessIcon } from "./hicon.js";
 import { refreshToolSupport } from "./forms.js";
+import { syncExclusive } from "./exclusive.js";
 import { openSettings } from "./settings.js";
 import { EFFORTS, MODES, openId } from "./state.js";
 import { $, esc, select } from "./util.js";
@@ -10,17 +12,9 @@ let models = ["sonnet", "opus", "haiku"];
 export let harnesses = [
   { name: "claude", efforts: EFFORTS, permission_modes: MODES, available: true, version: "", error: "", models: [] },
   { name: "opencode", efforts: [], permission_modes: ["auto", "plan"], available: true, version: "", error: "", models: [] },
+  { name: "mistral", efforts: [], permission_modes: ["auto", "plan"], available: true, version: "", error: "", models: [] },
 ];
-// Small inline icons per harness adapter (presentational); unknown names get a terminal glyph.
-const HARNESS_ICONS = {
-  claude: '<path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19"/>',
-  opencode: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M8 10l3 2-3 2M13 15h4"/>',
-};
-const HARNESS_FALLBACK_ICON = '<path d="M4 6l6 6-6 6M12 19h8"/>';
-export const harnessIcon = (name) => {
-  const known = Object.prototype.hasOwnProperty.call(HARNESS_ICONS, name);
-  return `<svg class="hicon${known ? ' hicon-' + name : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" draggable="false">${known ? HARNESS_ICONS[name] : HARNESS_FALLBACK_ICON}</svg>`;
-};
+export { harnessIcon };
 export const harnessInfo = (name) => harnesses.find((h) => h.name === name) || harnesses[0];
 const harnessLabel = (h) => h.name + (h.available ? "" : " (not available)");
 // Always keep the current value selectable, even if the harness is no longer registered.
@@ -62,6 +56,8 @@ export function modelSelect(id, value, h = harnesses[0], auto = false) {
 const AUTO_MODEL_HINT = "Automatic model selection is on for this card: the refiner picks the model (the manual model is only the fallback)";
 // Ticking the card's box disables or enables its manual model select at once.
 export function autoModelChanged() {
+  syncExclusive($("#f-skip"), $("#f-automodel"), "auto");
+  if ($("#create-refine")) $("#create-refine").disabled = $("#f-kind")?.value === "chat" || !!$("#f-skip")?.checked;
   const on = $("#f-automodel").checked, el = $("#f-model");
   el.disabled = on; el.title = on ? AUTO_MODEL_HINT : "";
 }
