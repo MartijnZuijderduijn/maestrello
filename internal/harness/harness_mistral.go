@@ -134,7 +134,7 @@ func mvWhoamiPlan(path string) (plan string, ok bool) {
 func (mistralHarness) Caps() Caps {
 	return Caps{
 		Resume: false, PermissionCallback: false, StructuredOutput: false, PerTurnEvents: true,
-		Account: true, // from the key / whoami cache on disk; no usage events, so Usage stays false
+		Account:         true,       // from the key / whoami cache on disk; no usage events, so Usage stays false
 		Efforts:         []string{}, // Vibe has `thinking` per model in config, not per run
 		PermissionModes: []string{"auto", "plan"},
 	}
