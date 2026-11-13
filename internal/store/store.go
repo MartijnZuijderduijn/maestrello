@@ -140,6 +140,7 @@ func scanCard(row interface{ Scan(...any) error }) (*model.Card, error) {
 	if planTasks != "" {
 		json.Unmarshal([]byte(planTasks), &c.PlanTasks)
 	}
+	c.NormalizeRunFlags() // a stored skip + auto-model combination reads as skip only
 	c.Context = []model.ContextItem{}
 	if contextJSON != "" {
 		json.Unmarshal([]byte(contextJSON), &c.Context)
@@ -428,6 +429,7 @@ func (s *Store) Settings() (model.Settings, error) {
 	if st.Harness == "" {
 		st.Harness = model.DefaultHarness // saved before the setting existed, or without it
 	}
+	st.NormalizeRunFlags()
 	return st, err
 }
 

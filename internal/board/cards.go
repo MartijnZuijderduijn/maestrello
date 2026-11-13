@@ -177,6 +177,9 @@ func (in *cardInput) apply(c *model.Card) error {
 	}
 	if in.AutoModel != nil {
 		c.AutoModel = *in.AutoModel
+		if c.AutoModel && (in.SkipRefinement == nil || !*in.SkipRefinement) {
+			c.SkipRefinement = false // choosing automatic model selection means the card is refined
+		}
 	}
 	if in.DeepRefinement != nil {
 		c.DeepRefinement = *in.DeepRefinement
@@ -213,6 +216,7 @@ func (in *cardInput) apply(c *model.Card) error {
 	if c.Kind == model.KindChat {
 		c.SkipRefinement = true // a chat never refines: the card text is the first message
 	}
+	c.NormalizeRunFlags()
 	h, err := harness.For(c.Harness)
 	if err == nil && in.Harness != nil {
 		// A harness chosen by the input brings its own defaults for what it does not accept.
@@ -291,6 +295,7 @@ func (a *App) CreateCard(in cardInput) (*model.Card, error) {
 	}
 	if in.SkipRefinement == nil && strings.TrimSpace(c.RefinedPrompt) != "" {
 		c.SkipRefinement = true // handing over a finished prompt means it needs no refinement
+		c.NormalizeRunFlags()
 	}
 	if err := a.guard.Check(c.RootFolder); err != nil {
 		return nil, err
@@ -382,6 +387,7 @@ func (a *App) EditCard(id int64, in cardInput) (*model.Card, error) {
 		}
 		if applyErr == nil && before.Status != model.StatusTodo {
 			c.SkipRefinement = before.SkipRefinement
+			c.NormalizeRunFlags()
 		}
 		if applyErr != nil {
 			*c = before

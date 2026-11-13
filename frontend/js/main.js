@@ -8,11 +8,11 @@ import { autoModelChanged, harnessChanged, recheckHarnesses, setHarnesses, setMo
 import { createProject, loadSel, openEditProject, openNewProject, saveProject, setSel, toggleLane, toggleProj, toggleProject } from "./projects.js";
 import { answer, approve, chatKey, deleteCard, discard, planSelection, replyChat, saveAgent, saveCard, saveReady, sendBack } from "./review.js";
 import { browsePath, pickPath } from "./picker.js";
-import { openSettings, projectSettingsChanged, saveProjectSettings, saveSettings } from "./settings.js";
+import { openSettings, projectSettingsChanged, saveProjectSettings, saveSettings, settingsRunFlagsChanged } from "./settings.js";
 import { $ } from "./util.js";
 
 // The markup uses inline on*= handlers, which look their functions up on window.
-Object.assign(window, { refineAllTodo, autoModelChanged, act, addContextPick, addContextTyped, removeContext, answer, approve, blockDrag, browsePath, cardClick, cardKey, chatKey, clearDone, closeDrawer, createCard, createProject, deleteCard, deleteDoneCard, discard, dragEnd, dragLeave, dragOver, dragStart, dropCard, harnessChanged, kindChanged, newPromptKey, openCard, openNew, openNewProject, openEditProject, saveProject, openSettings, pickPath, planSelection, projectChanged, projectSettingsChanged, saveProjectSettings, recheckHarnesses, refreshAcct, replyChat, saveAgent, saveCard, saveReady, saveSettings, sendBack, setSel, skipChanged, startAllReady, toggleAcct, toggleLane, toggleProj, toggleProject });
+Object.assign(window, { settingsRunFlagsChanged, refineAllTodo, autoModelChanged, act, addContextPick, addContextTyped, removeContext, answer, approve, blockDrag, browsePath, cardClick, cardKey, chatKey, clearDone, closeDrawer, createCard, createProject, deleteCard, deleteDoneCard, discard, dragEnd, dragLeave, dragOver, dragStart, dropCard, harnessChanged, kindChanged, newPromptKey, openCard, openNew, openNewProject, openEditProject, saveProject, openSettings, pickPath, planSelection, projectChanged, projectSettingsChanged, saveProjectSettings, recheckHarnesses, refreshAcct, replyChat, saveAgent, saveCard, saveReady, saveSettings, sendBack, setSel, skipChanged, startAllReady, toggleAcct, toggleLane, toggleProj, toggleProject });
 
 showBoardSkeleton();
 (async () => {
