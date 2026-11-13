@@ -119,10 +119,10 @@ function renderDetail() {
   const avLive = (c.status === "running" || c.status === "refining") && !c.waiting_on; // same rule as the board card
   const sid = c.session_id ? `<span title="${esc(c.session_id)}">session ${esc(c.session_id.slice(0, 8))}…</span>` : "";
   const editable = c.status === "todo" || c.status === "ready"; // these show the context in their form
-  
+
   // Create metadata for the modal header: status badge, card #, and type badge
   const meta = `<span class="badge">${label}</span><b>#${c.id}</b>${kindOf(c) !== "code" ? `<span class="badge">${esc(kindOf(c))}</span>` : ""}`;
-  
+
   // Agent info without the card #, type, and status (they're now in the header)
   const info = `<div class="agent-info">
       <div class="row"><span title="Harness">${harnessIcon(c.harness)}${esc(c.harness)}</span><span>${esc(c.model)}</span><span>effort ${esc(c.effort)}</span><span>${esc(c.permission_mode)}</span>${c.auto_run && (c.status === "todo" || c.status === "refining" || c.status === "ready") ? `<span title="Runs automatically after refinement">auto</span>` : ""}${c.skip_refinement ? `<span title="Refinement was skipped: the card text is the prompt">unrefined</span>` : ""}</div>
