@@ -28,19 +28,36 @@ export function harnessSelect(id, value) {
 }
 // The models a harness offers: its own list, or (claude) the board's known aliases.
 function modelsOf(h) { return h.models && h.models.length ? h.models : h.name === "claude" ? models : []; }
-// Refills a select from opts, keeping the current value when it is among them. With
-// `orKeep` and no opts (nothing known to offer) the current value stays as the only option.
-function fillSelect(el, opts, orKeep) {
+// Refills a select from opts, keeping the current value when it is among them.
+function fillSelect(el, opts) {
   const cur = el.value;
-  const list = !opts.length && orKeep && cur ? [cur] : opts;
-  el.innerHTML = list.map((o) => `<option ${o === cur ? "selected" : ""}>${esc(o)}</option>`).join("");
+  el.innerHTML = opts.map((o) => `<option ${o === cur ? "selected" : ""}>${esc(o)}</option>`).join("");
+}
+// The model field of a harness: a select of its models, or a text input when it lists none
+// (the harness takes any model name), so a model can always be chosen.
+function modelField(id, list, value) {
+  if (list.length) return select(id, list.includes(value) || !value ? list : [value, ...list], value);
+  return `<input id="${id}" value="${esc(value || "")}" placeholder="model name (harness default if empty)">`;
+}
+// Refills the model field after a harness change, swapping between select and input as needed;
+// the current value stays when the new harness lists it, or has no list.
+function fillModel(el, opts) {
+  const cur = el.value, isSelect = el.tagName === "SELECT";
+  if (opts.length && isSelect) return fillSelect(el, opts);
+  if (!opts.length && !isSelect) return;
+  const keep = !opts.length || opts.includes(cur) ? cur : "";
+  const tpl = document.createElement("template");
+  tpl.innerHTML = modelField(el.id, opts, keep);
+  const next = tpl.content.firstElementChild;
+  next.disabled = el.disabled; next.title = el.title;
+  el.replaceWith(next);
 }
 // A harness change refills model, effort and permission mode from what that harness offers,
 // keeping the current choice when the new harness knows it too.
 export function harnessChanged() {
   const h = harnessInfo($("#f-harness").value);
-  fillSelect($("#f-model"), modelsOf(h), true);
-  if ($("#s-rmodel")) fillSelect($("#s-rmodel"), modelsOf(h), true); // the settings' harness runs refinements
+  fillModel($("#f-model"), modelsOf(h));
+  if ($("#s-rmodel")) fillModel($("#s-rmodel"), modelsOf(h)); // the settings' harness runs refinements
   for (const id of ["#f-effort", "#s-reffort"]) if ($(id)) fillSelect($(id), h.efforts);
   fillSelect($("#f-mode"), h.permission_modes);
   refreshToolSupport();
@@ -50,9 +67,8 @@ export function harnessChanged() {
 // Always keep the current value selectable, even if it is not in the list.
 // With automatic model selection on for the card, the refiner picks the model, so the manual select is disabled.
 export function modelSelect(id, value, h = harnesses[0], auto = false) {
-  const list = modelsOf(h);
-  const html = select(id, list.includes(value) || !value ? list : [value, ...list], value);
-  return auto ? html.replace("<select", `<select disabled title="${AUTO_MODEL_HINT}"`) : html;
+  const html = modelField(id, modelsOf(h), value);
+  return auto ? html.replace(/^<(select|input)/, `<$1 disabled title="${AUTO_MODEL_HINT}"`) : html;
 }
 const AUTO_MODEL_HINT = "Automatic model selection is on for this card: the refiner picks the model (the manual model is only the fallback)";
 // Ticking the card's box disables or enables its manual model select at once.

@@ -285,3 +285,41 @@ func TestOmpValidationAndRegistry(t *testing.T) {
 		t.Errorf("Names = %v", Names())
 	}
 }
+func TestOmpListModels(t *testing.T) {
+	h := newOmpHarness(testenv.FakeOmp())
+	// Only chat models, as the provider/id selector `--model` takes.
+	if got, want := h.ListModels(), []string{"anthropic/claude-opus-4-5", "ollama/devstral:24b"}; !slices.Equal(got, want) {
+		t.Errorf("ListModels = %v, want %v", got, want)
+	}
+	t.Setenv("FAKE_OMP_NO_MODELS", "1")
+	if got := h.ListModels(); got != nil {
+		t.Errorf("failing catalog: %v, want nil", got)
+	}
+	if got := newOmpHarness("/no/such/omp").ListModels(); got != nil {
+		t.Errorf("missing binary: %v, want nil", got)
+	}
+	var _ ModelLister = h
+}
+
+func TestParseOmpModels(t *testing.T) {
+	out := []byte("noise\n" + `{"models":[{"kind":"chat","selector":"a/b"},{"kind":"chat","selector":"a/b"},{"kind":"image","selector":"a/img"},{"selector":"c/d"},{"kind":"chat","selector":""}]}`)
+	if got := parseOmpModels(out); !slices.Equal(got, []string{"a/b", "c/d"}) {
+		t.Errorf("parse = %v", got)
+	}
+	for _, bad := range []string{"", "not json", `{"models":`} {
+		if got := parseOmpModels([]byte(bad)); got != nil {
+			t.Errorf("parse(%q) = %v", bad, got)
+		}
+	}
+}
+
+func TestOmpModelPassedToCommand(t *testing.T) {
+	h := newOmpHarness("omp")
+	cmd, err := h.SessionCommand(SessionSpec{Card: &model.Card{Model: "ollama/devstral:24b", PermissionMode: "auto"}, MCPConfigPath: filepath.Join(t.TempDir(), "mcp.json"), MCPURL: "http://127.0.0.1:1/mcp/1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := slices.Index(cmd.Args, "--model"); i < 0 || cmd.Args[i+1] != "ollama/devstral:24b" {
+		t.Errorf("args = %v", cmd.Args)
+	}
+}

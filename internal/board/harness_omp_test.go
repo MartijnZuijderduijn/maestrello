@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -69,5 +70,43 @@ func TestOmpCardEndToEnd(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "CHANGED.txt")); err != nil {
 		t.Errorf("agent did not work in the root folder: %v", err)
+	}
+}
+
+func TestOmpModelsAndEditAgent(t *testing.T) {
+	dir := testenv.Dir(t)
+	app := newTestApp(t, dir)
+	app.ompBin = testenv.FakeOmp()
+	st := app.harnessStatus("omp")
+	if !st.Available || !slices.Contains(st.Models, "ollama/devstral:24b") {
+		t.Fatalf("status = %+v", st)
+	}
+	c := newCard(t, app, dir, "work")
+	c.Harness, c.Status = "omp", model.StatusTodo
+	app.store.SaveCard(c)
+	if _, err := app.EditAgent(c.ID, AgentParams{Model: strp("ollama/devstral:24b")}); err != nil {
+		t.Fatalf("listed model refused: %v", err)
+	}
+	if saved, _ := app.store.GetCard(c.ID); saved.Model != "ollama/devstral:24b" {
+		t.Errorf("saved model = %q", saved.Model)
+	}
+	if _, err := app.EditAgent(c.ID, AgentParams{Model: strp("nope/none")}); err == nil || !strings.Contains(err.Error(), "unknown model") {
+		t.Errorf("unlisted model: %v", err)
+	}
+	if saved, _ := app.store.GetCard(c.ID); saved.Model != "ollama/devstral:24b" {
+		t.Errorf("refused edit changed the model: %q", saved.Model)
+	}
+}
+
+func TestOmpNoModelList(t *testing.T) {
+	dir := testenv.Dir(t)
+	app := newTestApp(t, dir)
+	app.ompBin = testenv.FakeOmp()
+	t.Setenv("FAKE_OMP_NO_MODELS", "1")
+	if st := app.harnessStatus("omp"); !st.Available || len(st.Models) != 0 {
+		t.Fatalf("status = %+v", st)
+	}
+	if err := app.validateModel("omp", "anything/goes"); err != nil {
+		t.Errorf("free choice refused: %v", err)
 	}
 }

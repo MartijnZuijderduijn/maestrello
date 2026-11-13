@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"maestrello/internal/model"
 	"maestrello/internal/textutil"
@@ -444,4 +445,39 @@ func parseOmpAccount(out []byte) (*Account, bool) {
 		}
 	}
 	return acct, true
+}
+
+// ListModels parses `omp models --json`: the chat models omp has a catalog entry
+// for, as `provider/id` selectors, which is what `--model` takes exactly. It reads
+// the catalog only, never credentials. Nil on any failure, so a model can still be typed.
+func (h ompHarness) ListModels() []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, h.bin, "models", "--json").Output()
+	if err != nil {
+		return nil
+	}
+	return parseOmpModels(out)
+}
+
+func parseOmpModels(out []byte) []string {
+	var doc struct {
+		Models []struct {
+			Kind     string `json:"kind"`
+			Selector string `json:"selector"`
+		} `json:"models"`
+	}
+	i := bytes.IndexByte(out, '{')
+	if i < 0 || json.Unmarshal(out[i:], &doc) != nil {
+		return nil
+	}
+	var models []string
+	seen := map[string]bool{}
+	for _, m := range doc.Models {
+		if (m.Kind == "" || m.Kind == "chat") && m.Selector != "" && !strings.ContainsAny(m.Selector, " \t") && !seen[m.Selector] {
+			seen[m.Selector] = true
+			models = append(models, m.Selector)
+		}
+	}
+	return models
 }

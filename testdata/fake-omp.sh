@@ -3,6 +3,7 @@
 #   --version        prints `omp/<version>` like the real one
 #   usage --json     prints the JSON of `omp usage --json`: one account (provider, no keys),
 #                    or none when FAKE_OMP_LOGGED_OUT is set
+#   models --json    prints a small model catalog (exit 1 when FAKE_OMP_NO_MODELS is set)
 #   -p ...           reads the prompt from stdin and acts on a keyword in it, like fake-mistral.sh:
 #     ASK (asks the user, then reports done), LOOP, FAIL, ERR (exits 2), RATE (rate-limit error), PLAN,
 #     CHAT, anything else reports done. A refinement (no --mode json) prints the schema's JSON in a
@@ -18,6 +19,12 @@ if [ "${1:-}" = usage ]; then
   else
     echo '{"generatedAt":1,"reports":[{"provider":"anthropic","email":"fake@example.com","limits":[]}],"accountsWithoutUsage":[],"disabledCredentials":[],"capacity":{}}'
   fi
+  exit 0
+fi
+if [ "${1:-}" = models ]; then
+  # `omp models --json`: the catalog, one chat model per provider (FAKE_OMP_NO_MODELS: fails)
+  [ -z "${FAKE_OMP_NO_MODELS:-}" ] || { echo "no catalog" >&2; exit 1; }
+  echo '{"models":[{"provider":"anthropic","kind":"chat","id":"claude-opus-4-5","selector":"anthropic/claude-opus-4-5"},{"provider":"ollama","kind":"chat","id":"devstral:24b","selector":"ollama/devstral:24b"},{"provider":"ollama","kind":"embedding","id":"nomic","selector":"ollama/nomic"}]}'
   exit 0
 fi
 [ "${1:-}" = -p ] || { echo "fake omp: unknown command $*" >&2; exit 1; }
