@@ -119,15 +119,20 @@ function renderDetail() {
   const avLive = (c.status === "running" || c.status === "refining") && !c.waiting_on; // same rule as the board card
   const sid = c.session_id ? `<span title="${esc(c.session_id)}">session ${esc(c.session_id.slice(0, 8))}…</span>` : "";
   const editable = c.status === "todo" || c.status === "ready"; // these show the context in their form
+  
+  // Create metadata for the modal header: status badge, card #, and type badge
+  const meta = `<span class="badge">${label}</span><b>#${c.id}</b>${kindOf(c) !== "code" ? `<span class="badge">${esc(kindOf(c))}</span>` : ""}`;
+  
+  // Agent info without the card #, type, and status (they're now in the header)
   const info = `<div class="agent-info">
-      <div class="row"><span><span class="badge">${label}</span><b>#${c.id}</b></span>${kindOf(c) !== "code" ? `<span class="badge">${esc(kindOf(c))}</span>` : ""}<span title="Harness">${harnessIcon(c.harness)}${esc(c.harness)}</span><span>${esc(c.model)}</span><span>effort ${esc(c.effort)}</span><span>${esc(c.permission_mode)}</span>${c.auto_run && (c.status === "todo" || c.status === "refining" || c.status === "ready") ? `<span title="Runs automatically after refinement">auto</span>` : ""}${c.skip_refinement ? `<span title="Refinement was skipped: the card text is the prompt">unrefined</span>` : ""}</div>
+      <div class="row"><span title="Harness">${harnessIcon(c.harness)}${esc(c.harness)}</span><span>${esc(c.model)}</span><span>effort ${esc(c.effort)}</span><span>${esc(c.permission_mode)}</span>${c.auto_run && (c.status === "todo" || c.status === "refining" || c.status === "ready") ? `<span title="Runs automatically after refinement">auto</span>` : ""}${c.skip_refinement ? `<span title="Refinement was skipped: the card text is the prompt">unrefined</span>` : ""}</div>
       <div class="row"><span>${c.turns_used} / ${c.max_turns || "∞"} turns</span><span>${c.max_minutes || "∞"} min limit</span>${c.cost_usd ? `<span>$${c.cost_usd.toFixed(2)}</span>` : ""}${sid}</div>
       ${c.waiting_on ? `<div class="row wait" title="${esc(c.activity || "")}"><span>waiting on #${c.waiting_on}</span></div>` : ""}
       <div class="row loc"><span title="Project">${esc(projects.get(c.project_id)?.name || "no project")}</span><span>${esc(c.root_folder)}</span></div>
       ${!editable && (c.context || []).length ? sec(c.id, "context", `Additional context (${c.context.length})`, `<div class="ctx-list">${c.context.map((i) => `<div class="ctx-item"><span class="ctx-icon" title="${i.type === "dir" ? "Folder" : "File"}">${ctxIcon(i.type)}</span><span class="ctx-path">${esc(i.path)}</span></div>`).join("")}</div>`, true, "sub") : ""}
     </div>`;
   const toolsSec = (c.tools || []).length ? sec(c.id, "tools", `Tools (${c.tools.length})`, `<div class="meta" title="Toolbox">${esc(c.tools.map((id) => toolbox.find((t) => t.id === id)?.label || id).join(", "))}</div>`, c.tools.length <= 5) : "";
-  openDrawer(c.title, info + toolsSec + body, avatarHTML(c, avLive));
+  openDrawer(c.title, info + toolsSec + body, avatarHTML(c, avLive), meta);
   refreshToolSupport();
   $("#drawer-body").scrollTop = scroll;
   const log = $("#log"); if (log) log.scrollTop = log.scrollHeight;

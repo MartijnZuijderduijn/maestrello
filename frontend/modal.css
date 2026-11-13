@@ -19,12 +19,16 @@ body:has(#overlay.open) { overflow: hidden; }
 @keyframes modal-out { to { opacity: 0; transform: translateY(6px) scale(.97); filter: blur(2px); } }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes fade-out { to { opacity: 0; } }
-.modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px 12px 20px; border-bottom: 1px solid var(--border); }
+.modal-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 12px 20px; border-bottom: 1px solid var(--border); }
 .modal-head h3 { flex: 1; min-width: 0; margin: 0; font-size: 18px; overflow-wrap: anywhere; }
 .modal-head .close { flex: none; }
 .modal-head .av { width: 44px; height: 44px; }
 #drawer-av { flex: none; display: flex; }
 #drawer-av:empty { display: none; }
+#drawer-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+#drawer-meta:empty { display: none; }
+#drawer-meta .badge { margin-right: 0; flex: none; }
+#drawer-meta b { font-weight: 600; }
 .agent-info { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; margin-bottom: 4px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--muted); }
 .agent-info .row { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); align-items: center; gap: 4px 12px; min-width: 0; line-height: 1.4; }
 .agent-info .row > span { display: flex; align-items: center; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
