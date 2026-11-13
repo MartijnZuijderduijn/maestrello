@@ -61,6 +61,11 @@ func apply(o model.Overrides, st *model.Settings, kind, layer string, src map[st
 	flag("auto_run", o.AutoRun, &st.DefaultAutoRun)
 	flag("skip_refinement", o.SkipRefinement, &st.DefaultSkipRefinement)
 	flag("auto_model", o.AutoModel, &st.AutoModel)
+	// The two exclude each other: the more specific layer's explicit choice wins over what an earlier layer set.
+	if o.AutoModel != nil && *o.AutoModel && (o.SkipRefinement == nil || !*o.SkipRefinement) {
+		st.DefaultSkipRefinement = false
+	}
+	st.NormalizeRunFlags()
 	if o.Tools != nil {
 		tools := make(map[string][]string, len(st.DefaultTools)+1)
 		for k, v := range st.DefaultTools {
