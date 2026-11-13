@@ -37,7 +37,7 @@ function limChip(l) {
 }
 const ACCT_LOADING = `<span class="skeleton acct" aria-hidden="true"></span><span class="sr-only">checking account…</span>`;
 // What each harness's account refresh runs, for the Refresh button's tooltip.
-const ACCOUNT_CMD = { claude: "claude auth status" };
+const ACCOUNT_CMD = { claude: "claude auth status", mistral: "check for a Mistral API key and Vibe's cached account (~/.vibe)" };
 const refreshTitle = (name) => "Re-run " + (ACCOUNT_CMD[name] || name + " account check");
 // A harness that reports neither an account nor usage has nothing to show.
 const shownHarnesses = () => (usage?.harnesses || []).filter((h) => h.account_supported || h.usage_supported);

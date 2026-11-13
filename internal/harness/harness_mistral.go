@@ -56,15 +56,85 @@ func newMistralHarness(bin string) mistralHarness {
 
 func (mistralHarness) Name() string { return "mistral" }
 
-// Account and ParseUsage: Vibe has no auth-status command and its stream has no
-// usage-limit events (the key is in `.env`, not asked from the CLI), so Caps says
-// neither and the header shows "account unknown" for it, or leaves it out.
-func (mistralHarness) Account(context.Context) (*Account, error) { return nil, ErrNoAccount }
-func (mistralHarness) ParseUsage([]byte) []UsageLimit            { return nil }
+// Account reads what Vibe leaves on disk, since the CLI has no auth-status command
+// (checked against vibe 3.1.2: only `mcp`, `config` and `update` subcommands). It is
+// logged in when a key is configured (MISTRAL_API_KEY in the environment or in
+// `<vibe home>/.env`) or Vibe has cached its account lookup (`whoami_cache.json`),
+// which also holds the plan name. The key itself is never kept or returned, and the
+// cache has no email, so none is shown.
+func (mistralHarness) Account(context.Context) (*Account, error) {
+	home := mvUserHome()
+	key := strings.TrimSpace(os.Getenv("MISTRAL_API_KEY")) != "" || mvEnvHasKey(filepath.Join(home, ".env"))
+	plan, cached := mvWhoamiPlan(filepath.Join(home, "whoami_cache.json"))
+	if !key && !cached {
+		return &Account{LoggedIn: false}, nil
+	}
+	acct := &Account{LoggedIn: true, APIProvider: "mistral", SubscriptionType: plan}
+	if key {
+		acct.AuthMethod = "api key"
+	}
+	return acct, nil
+}
+
+// ParseUsage: the stream has no usage-limit events, so Caps.Usage is false.
+func (mistralHarness) ParseUsage([]byte) []UsageLimit { return nil }
+
+// mvUserHome is the user's Vibe home: $VIBE_HOME or ~/.vibe.
+func mvUserHome() string {
+	if h := os.Getenv("VIBE_HOME"); h != "" {
+		return h
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(h, ".vibe")
+	}
+	return ""
+}
+
+// mvEnvHasKey reports whether the .env file sets a non-empty MISTRAL_API_KEY.
+func mvEnvHasKey(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "export "))
+		if v, ok := strings.CutPrefix(line, "MISTRAL_API_KEY="); ok {
+			return strings.Trim(strings.TrimSpace(v), `"'`) != ""
+		}
+	}
+	return false
+}
+
+// mvWhoamiPlan reads the plan name (e.g. "Free") from Vibe's cached account lookup.
+func mvWhoamiPlan(path string) (plan string, ok bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	var m map[string]struct {
+		Payload struct {
+			PlanName string `json:"plan_name"`
+			PlanType string `json:"plan_type"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(data, &m) != nil || len(m) == 0 {
+		return "", false
+	}
+	for _, e := range m {
+		if p := e.Payload.PlanName; p != "" {
+			return strings.ToUpper(p[:1]) + strings.ToLower(p[1:]), true
+		}
+		if p := e.Payload.PlanType; p != "" {
+			return p, true
+		}
+	}
+	return "", true
+}
 
 func (mistralHarness) Caps() Caps {
 	return Caps{
 		Resume: false, PermissionCallback: false, StructuredOutput: false, PerTurnEvents: true,
+		Account: true, // from the key / whoami cache on disk; no usage events, so Usage stays false
 		Efforts:         []string{}, // Vibe has `thinking` per model in config, not per run
 		PermissionModes: []string{"auto", "plan"},
 	}
@@ -156,12 +226,7 @@ func mvHome(dir string, tools []string, mcpURL, instructions string) error {
 	if err := os.WriteFile(filepath.Join(dir, "agents", "maestrello.toml"), []byte(mvAgent(instructions)), 0o600); err != nil {
 		return err
 	}
-	userHome := os.Getenv("VIBE_HOME")
-	if userHome == "" {
-		if h, err := os.UserHomeDir(); err == nil {
-			userHome = filepath.Join(h, ".vibe")
-		}
-	}
+	userHome := mvUserHome()
 	if userHome != "" && userHome != dir {
 		env := filepath.Join(userHome, ".env")
 		if _, err := os.Stat(env); err == nil {

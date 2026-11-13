@@ -326,7 +326,7 @@ func TestClaudeCaps(t *testing.T) {
 		t.Errorf("claude caps = %+v, want account and usage", c)
 	}
 	// Harnesses without an account lookup or usage events say so, and never fail.
-	for _, h := range []Harness{opencodeHarness{}, mistralHarness{}} {
+	for _, h := range []Harness{opencodeHarness{}} {
 		if c := h.Caps(); c.Account || c.Usage {
 			t.Errorf("%s caps = %+v, want neither account nor usage", h.Name(), c)
 		}
@@ -336,6 +336,51 @@ func TestClaudeCaps(t *testing.T) {
 		if u := h.ParseUsage([]byte(`{"rate_limit_info":{"status":"allowed","rateLimitType":"five_hour"}}`)); u != nil {
 			t.Errorf("%s ParseUsage = %+v", h.Name(), u)
 		}
+	}
+}
+
+func TestMistralAccount(t *testing.T) {
+	h := mistralHarness{}
+	if c := h.Caps(); !c.Account || c.Usage {
+		t.Errorf("mistral caps = %+v, want account without usage", c)
+	}
+	if u := h.ParseUsage([]byte(`{"rate_limit_info":{"status":"allowed"}}`)); u != nil {
+		t.Errorf("ParseUsage = %+v", u)
+	}
+	home := t.TempDir()
+	t.Setenv("VIBE_HOME", home)
+	t.Setenv("MISTRAL_API_KEY", "")
+	get := func() *Account {
+		a, err := h.Account(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	if a := get(); a.LoggedIn {
+		t.Errorf("empty home: %+v", a)
+	}
+	// An empty key does not count.
+	os.WriteFile(filepath.Join(home, ".env"), []byte("MISTRAL_API_KEY=\n"), 0o600)
+	if a := get(); a.LoggedIn {
+		t.Errorf("empty key: %+v", a)
+	}
+	os.WriteFile(filepath.Join(home, ".env"), []byte("OTHER=1\nMISTRAL_API_KEY=\"sk-secret-123\"\n"), 0o600)
+	a := get()
+	if !a.LoggedIn || a.APIProvider != "mistral" || a.AuthMethod != "api key" || a.Email != "" {
+		t.Errorf("with key: %+v", a)
+	}
+	if b, _ := json.Marshal(a); strings.Contains(string(b), "secret") {
+		t.Errorf("key leaked: %s", b)
+	}
+	os.WriteFile(filepath.Join(home, "whoami_cache.json"), []byte(`{"h":{"payload":{"plan_name":"FREE","plan_type":"chat"}}}`), 0o600)
+	if a := get(); a.SubscriptionType != "Free" {
+		t.Errorf("plan: %+v", a)
+	}
+	// The cache alone (no key file) still shows the account.
+	os.Remove(filepath.Join(home, ".env"))
+	if a := get(); !a.LoggedIn || a.AuthMethod != "" || a.SubscriptionType != "Free" {
+		t.Errorf("cache only: %+v", a)
 	}
 }
 

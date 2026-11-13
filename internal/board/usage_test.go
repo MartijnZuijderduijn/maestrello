@@ -133,12 +133,30 @@ func TestAccountEndpoint(t *testing.T) {
 	if c2 := getClaude(t, app, ""); c2.Account == nil || c2.Account.Email != want.Email {
 		t.Errorf("cached snapshot = %+v", c2)
 	}
-	// opencode and mistral have no account lookup: they stay unknown, without an error.
+	// opencode has no account lookup: it stays unknown, without an error.
 	after := getAccount(t, app, "?refresh=1")
-	for _, name := range []string{"opencode", "mistral"} {
-		if e := entryOf(t, after, name); e.Account != nil || e.AccountError != "" || e.CheckedAt != nil || e.AccountSupported || e.UsageSupported || len(e.Limits) != 0 {
-			t.Errorf("%s entry = %+v", name, e)
-		}
+	if e := entryOf(t, after, "opencode"); e.Account != nil || e.AccountError != "" || e.CheckedAt != nil || e.AccountSupported || e.UsageSupported || len(e.Limits) != 0 {
+		t.Errorf("opencode entry = %+v", e)
+	}
+	// mistral reports an account from its home dir (see TestMistralAccountEntry) but no usage.
+	if e := entryOf(t, after, "mistral"); !e.AccountSupported || e.UsageSupported || e.AccountError != "" || e.Account == nil || len(e.Limits) != 0 {
+		t.Errorf("mistral entry = %+v", e)
+	}
+}
+
+func TestMistralAccountEntry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("VIBE_HOME", home)
+	t.Setenv("MISTRAL_API_KEY", "")
+	os.WriteFile(filepath.Join(home, ".env"), []byte("MISTRAL_API_KEY=sk-secret-xyz\n"), 0o600)
+	app := newTestApp(t, testenv.Dir(t))
+	e := entryOf(t, getAccount(t, app, "?harness=mistral&refresh=1"), "mistral")
+	if !e.AccountSupported || e.UsageSupported || e.Account == nil || !e.Account.LoggedIn || e.Account.APIProvider != "mistral" || e.CheckedAt == nil {
+		t.Fatalf("mistral entry = %+v", e)
+	}
+	b, _ := json.Marshal(getAccount(t, app, ""))
+	if strings.Contains(string(b), "secret") {
+		t.Errorf("key in the API response: %s", b)
 	}
 }
 
@@ -237,10 +255,13 @@ func TestRefreshAccountsAtStartup(t *testing.T) {
 	if c := entryOf(t, s, "other"); c.Account == nil || c.CheckedAt == nil {
 		t.Errorf("other not refreshed: %+v", c)
 	}
-	for _, name := range []string{"nocaps", "opencode", "mistral"} {
+	for _, name := range []string{"nocaps", "opencode"} {
 		if c := entryOf(t, s, name); c.Account != nil || c.CheckedAt != nil || c.AccountError != "" {
 			t.Errorf("%s was refreshed without the capability: %+v", name, c)
 		}
+	}
+	if c := entryOf(t, s, "mistral"); c.Account == nil || c.CheckedAt == nil {
+		t.Errorf("mistral not refreshed: %+v", c)
 	}
 }
 
@@ -401,7 +422,7 @@ func TestHarnessWithoutAccountOrUsage(t *testing.T) {
 			t.Errorf("nocaps entry for %q = %+v", q, e)
 		}
 	}
-	if e := entryOf(t, getAccount(t, app, "?harness=mistral&refresh=1"), "mistral"); e.Account != nil || e.AccountError != "" || len(e.Limits) != 0 {
+	if e := entryOf(t, getAccount(t, app, "?harness=mistral&refresh=1"), "mistral"); e.UsageSupported || e.AccountError != "" || len(e.Limits) != 0 {
 		t.Errorf("mistral entry = %+v", e)
 	}
 	if raw, _ := app.store.GetKV(usageSettingKey); raw != "" {
