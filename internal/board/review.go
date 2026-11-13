@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -60,18 +61,43 @@ func (a *App) Approve(id int64, actions map[int64]string) error {
 // the proposed tasks to create as Todo cards. nil means all of them, an empty list none.
 // Cards of other kinds have no tasks, so for them a selection is an error.
 func (a *App) ApproveSelected(id int64, actions map[int64]string, tasks []int) error {
-	if a.liveRun(id) != nil {
-		return fmt.Errorf("the agent is still running")
-	}
-	card, err := a.store.GetCard(id)
+	_, err := a.approveSelected(id, actions, tasks)
+	return err
+}
+
+// ApproveAndRefine is ApproveSelected followed by refining every Todo card the plan created.
+// Approval errors stop before any refinement; refinement errors are returned after all cards
+// were tried (the plan itself is already approved by then).
+func (a *App) ApproveAndRefine(id int64, actions map[int64]string, tasks []int) error {
+	made, err := a.approveSelected(id, actions, tasks)
 	if err != nil {
 		return err
 	}
+	var errs []error
+	for _, c := range made {
+		if c.EffectiveKind() == model.KindChat {
+			continue // a chat is never refined
+		}
+		if err := a.Refine(c.ID); err != nil {
+			errs = append(errs, fmt.Errorf("#%d: %w", c.ID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (a *App) approveSelected(id int64, actions map[int64]string, tasks []int) ([]*model.Card, error) {
+	if a.liveRun(id) != nil {
+		return nil, fmt.Errorf("the agent is still running")
+	}
+	card, err := a.store.GetCard(id)
+	if err != nil {
+		return nil, err
+	}
 	if card.Status != model.StatusReview {
-		return fmt.Errorf("card is %s; only review cards can be approved", card.Status)
+		return nil, fmt.Errorf("card is %s; only review cards can be approved", card.Status)
 	}
 	if tasks != nil && card.EffectiveKind() != model.KindPlan {
-		return fmt.Errorf("only a plan card has tasks to select")
+		return nil, fmt.Errorf("only a plan card has tasks to select")
 	}
 	var made []*model.Card
 	if card.EffectiveKind() == model.KindPlan {
@@ -80,7 +106,7 @@ func (a *App) ApproveSelected(id int64, actions map[int64]string, tasks []int) e
 			if len(made) > 0 {
 				a.note(id, "plan approval stopped after creating %s: %v", cardRefs(made), err)
 			}
-			return err
+			return nil, err
 		}
 		if len(made) > 0 {
 			a.note(id, "plan approved: created %s", cardRefs(made))
@@ -89,12 +115,12 @@ func (a *App) ApproveSelected(id int64, actions map[int64]string, tasks []int) e
 		}
 	}
 	if err := a.closeRepos(card, actions); err != nil {
-		return err
+		return nil, err
 	}
 	a.cleanupWorkspace(id)
 	a.releaseLeases(id)
 	a.update(id, func(c *model.Card) { c.Status = model.StatusDone; c.Activity = "approved" })
-	return nil
+	return made, nil
 }
 
 // cardRefs lists cards as "#3, #4".

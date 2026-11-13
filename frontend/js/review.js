@@ -75,17 +75,18 @@ export function sendBack() {
   if (!text) return alert("Write some feedback first.");
   act(detail.card.id, "send-back", { text });
 }
-export function approve() {
+export function approve(refine = false) {
   const actions = {};
   document.querySelectorAll("select[data-repo]").forEach((s) => actions[s.dataset.repo] = s.value);
   // A plan creates one card per ticked task.
   const tasks = [...document.querySelectorAll("input[data-task]:checked")].map((i) => +i.dataset.task);
-  act(detail.card.id, "approve", kindOf(detail.card) === "plan" ? { actions, tasks } : { actions });
+  act(detail.card.id, "approve", kindOf(detail.card) === "plan" ? { actions, tasks, ...(refine ? { refine } : {}) } : { actions });
 }
 // The plan's approve button says how many cards it will create.
 export function planSelection() {
   const n = document.querySelectorAll("input[data-task]:checked").length;
   $("#approve-btn").textContent = `Create ${n} card${n === 1 ? "" : "s"}`;
+  const b = $("#approve-refine-btn"); if (b) b.textContent = `Create ${n} and refine`;
 }
 export function discard() {
   if (confirm("Discard this card? Its worktrees and branches are deleted.")) act(detail.card.id, "discard");

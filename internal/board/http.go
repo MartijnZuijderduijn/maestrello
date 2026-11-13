@@ -443,6 +443,7 @@ func (a *App) handleAction(w http.ResponseWriter, r *http.Request) {
 		Actions map[string]string `json:"actions"` // repo id → local|push|pr
 		Status  string            `json:"status"`  // target column for move
 		Stop    bool              `json:"stop"`    // move: halt a live session first (I confirmed)
+		Refine  bool              `json:"refine"`  // approve a plan: also refine the cards it created
 		Tasks   []int             `json:"tasks"`   // approve a plan: indices of the tasks to create; absent means all
 	}
 	if r.ContentLength != 0 {
@@ -472,7 +473,11 @@ func (a *App) handleAction(w http.ResponseWriter, r *http.Request) {
 			rid, _ := strconv.ParseInt(k, 10, 64)
 			actions[rid] = v
 		}
-		err = a.ApproveSelected(id, actions, body.Tasks)
+		if body.Refine {
+			err = a.ApproveAndRefine(id, actions, body.Tasks)
+		} else {
+			err = a.ApproveSelected(id, actions, body.Tasks)
+		}
 	case "discard":
 		err = a.Discard(id)
 	case "move":
