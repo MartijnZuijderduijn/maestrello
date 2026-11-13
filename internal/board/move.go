@@ -53,14 +53,9 @@ func (a *App) moveBy(id int64, to, by string) error {
 		}
 	}
 	if card.Status == model.StatusDone {
-		repos, err := a.store.Repos(id)
-		if err != nil {
+		// Leaving Done gives the card its workspace back, whatever the target column.
+		if err := a.reopenRepos(card); err != nil {
 			return err
-		}
-		for _, r := range repos {
-			if r.WorktreePath != "" && !r.Local() {
-				return fmt.Errorf("the card's worktrees were removed when it was closed; create a new card instead")
-			}
 		}
 	}
 

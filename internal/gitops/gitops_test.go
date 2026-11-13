@@ -138,3 +138,37 @@ func TestGitRefusesPathsOutsideSandbox(t *testing.T) {
 		t.Error("git ran outside the sandbox")
 	}
 }
+
+func TestAddWorktreeExisting(t *testing.T) {
+	dir := testenv.Dir(t)
+	testenv.IsolateGit(t, dir)
+	repo := testenv.MakeRepo(t, dir, "svc")
+	guard, _ := sandbox.NewGuard(dir)
+	g := &Git{guard: guard}
+	ctx := context.Background()
+	base, _ := g.FetchBase(ctx, repo)
+
+	if g.BranchExists(ctx, repo, "maestrello/1-x") {
+		t.Fatal("branch exists before creation")
+	}
+	wt := filepath.Join(dir, "work", "1", "svc")
+	if err := g.AddWorktree(ctx, repo, wt, "maestrello/1-x", base); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(wt, "new.txt"), []byte("hi\n"), 0o644)
+	if _, err := g.CommitAll(ctx, wt, "add new.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.RemoveWorktree(ctx, repo, wt); err != nil {
+		t.Fatal(err)
+	}
+	if !g.BranchExists(ctx, repo, "maestrello/1-x") {
+		t.Fatal("branch lost with the worktree")
+	}
+	if err := g.AddWorktreeExisting(ctx, repo, wt, "maestrello/1-x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "new.txt")); err != nil {
+		t.Errorf("earlier commit missing: %v", err)
+	}
+}

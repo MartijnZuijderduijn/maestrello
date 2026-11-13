@@ -128,6 +128,24 @@ func (g *Git) AddWorktree(ctx context.Context, repo, path, branch, base string) 
 	return err
 }
 
+// BranchExists reports whether a local branch exists in repo.
+func (g *Git) BranchExists(ctx context.Context, repo, branch string) bool {
+	_, err := g.run(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil
+}
+
+// AddWorktreeExisting checks out an existing branch in a new worktree at path.
+func (g *Git) AddWorktreeExisting(ctx context.Context, repo, path, branch string) error {
+	if err := g.guard.Check(path); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	_, err := g.run(ctx, repo, "worktree", "add", "--quiet", path, branch)
+	return err
+}
+
 func (g *Git) RemoveWorktree(ctx context.Context, repo, path string) error {
 	if err := g.guard.Check(path); err != nil {
 		return err

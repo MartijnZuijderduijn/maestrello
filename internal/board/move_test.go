@@ -136,9 +136,85 @@ func TestMoveRefusals(t *testing.T) {
 	app.Stop(c.ID)
 	waitStatus(t, app, c.ID, model.StatusFailed)
 
+}
+
+// A card closed with its work kept local comes back with a worktree on the same branch.
+func TestMoveDoneBackToRunning(t *testing.T) {
+	_, root, app := repoFixture(t)
+	c := readyCard(t, app, root, "WRITE", "svc/a")
+	app.Run(c.ID)
+	waitStatus(t, app, c.ID, model.StatusReview)
+	waitIdle(t, app, c.ID)
+	c = move(t, app, c.ID, model.StatusDone)
+
+	if err := app.Move(c.ID, model.StatusRunning); err != nil {
+		t.Fatalf("move back to running: %v", err)
+	}
+	waitStatus(t, app, c.ID, model.StatusReview)
+	waitIdle(t, app, c.ID)
+	r := mustRepos(t, app, c.ID)[0]
+	if r.Result != "" {
+		t.Errorf("result = %q, want reopened", r.Result)
+	}
+	if _, err := os.Stat(filepath.Join(r.WorktreePath, "CHANGED.txt")); err != nil {
+		t.Errorf("earlier commit missing from the worktree: %v", err)
+	}
+	if b := testenv.Git(t, r.WorktreePath, "rev-parse", "--abbrev-ref", "HEAD"); strings.TrimSpace(b) != branchName(c) {
+		t.Errorf("worktree on %q, want %s", b, branchName(c))
+	}
+	// And it can be closed again.
 	move(t, app, c.ID, model.StatusDone)
-	if err := app.Move(c.ID, model.StatusReady); err == nil {
-		t.Error("moved a closed card whose worktrees are gone")
+}
+
+// Dragging to a non-running column reopens the workspace too, and a branch that was
+// deleted (merged, or dropped for lack of changes) is recreated from the current base.
+func TestMoveDoneBackToReadyRecreatesBranch(t *testing.T) {
+	_, root, app := repoFixture(t)
+	c := readyCard(t, app, root, "NOOP", "svc/a")
+	app.Run(c.ID)
+	waitStatus(t, app, c.ID, model.StatusReview)
+	waitIdle(t, app, c.ID)
+	move(t, app, c.ID, model.StatusDone)
+	r := mustRepos(t, app, c.ID)[0]
+	if !strings.HasPrefix(r.Result, "dropped") {
+		t.Fatalf("result = %q, want dropped", r.Result)
+	}
+	if testenv.Git(t, filepath.Join(root, "svc/a"), "branch", "--list", r.Branch) != "" {
+		t.Fatal("branch should be gone")
+	}
+
+	move(t, app, c.ID, model.StatusReady)
+	r = mustRepos(t, app, c.ID)[0]
+	if r.Result != "" {
+		t.Errorf("result = %q", r.Result)
+	}
+	if _, err := os.Stat(r.WorktreePath); err != nil {
+		t.Errorf("worktree missing: %v", err)
+	}
+	if testenv.Git(t, filepath.Join(root, "svc/a"), "branch", "--list", r.Branch) == "" {
+		t.Error("branch not recreated")
+	}
+}
+
+func TestMoveDoneBackLocalWork(t *testing.T) {
+	dir, root := plainRoot(t)
+	app := newTestApp(t, dir)
+	c := readyCard(t, app, root, "LOCAL")
+	app.Run(c.ID)
+	waitStatus(t, app, c.ID, model.StatusReview)
+	waitIdle(t, app, c.ID)
+	move(t, app, c.ID, model.StatusDone)
+
+	if err := app.Move(c.ID, model.StatusRunning); err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, app, c.ID, model.StatusReview)
+	waitIdle(t, app, c.ID)
+	if r := mustRepos(t, app, c.ID)[0]; r.Result != "" || !r.Local() {
+		t.Errorf("repo = %+v, want reopened local work", r)
+	}
+	if _, err := os.Stat(filepath.Join(root, "LOCAL.txt")); err != nil {
+		t.Error(err)
 	}
 }
 

@@ -182,6 +182,52 @@ func (a *App) closeRepos(card *model.Card, actions map[int64]string) error {
 	return nil
 }
 
+// reopenRepos undoes closeRepos for a card leaving Done: closed local-work repos are
+// claimed again, and every closed git repo gets its worktree back at the stored path, on
+// the card branch if it was kept, else on a new branch from the current base.
+func (a *App) reopenRepos(card *model.Card) error {
+	repos, err := a.store.Repos(card.ID)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	for _, r := range repos {
+		if r.WorktreePath == "" || r.Result == "" {
+			continue
+		}
+		if !r.Local() {
+			orig := filepath.Join(card.RootFolder, r.RepoPath)
+			if err := os.MkdirAll(a.workDir(card.ID), 0o755); err != nil {
+				return err
+			}
+			if r.Branch == "" {
+				r.Branch = branchName(card)
+			}
+			if a.git.BranchExists(ctx, orig, r.Branch) {
+				err = a.git.AddWorktreeExisting(ctx, orig, r.WorktreePath, r.Branch)
+			} else {
+				var base string
+				if base, err = a.git.FetchBase(ctx, orig); err == nil {
+					if err = a.git.AddWorktree(ctx, orig, r.WorktreePath, r.Branch, base); err == nil {
+						r.BaseRef = base
+					}
+				}
+			}
+			if err != nil {
+				return fmt.Errorf("%s: reopen worktree: %w", r.RepoPath, err)
+			}
+			r.OrigStatus, _ = a.git.Status(ctx, orig)
+		}
+		r.Result, r.PRURL = "", ""
+		if err := a.store.SaveRepo(r); err != nil {
+			return err
+		}
+		a.note(card.ID, "%s: reopened", r.RepoPath)
+	}
+	return nil
+}
+
 // Discard throws away all of the card's worktrees and branches and closes the card.
 func (a *App) Discard(id int64) error {
 	if run := a.liveRun(id); run != nil {
