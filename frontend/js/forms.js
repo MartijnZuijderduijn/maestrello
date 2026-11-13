@@ -20,7 +20,7 @@ export function settingsFields(c) {
     <div class="row">
       <div><label>Max turns</label><input id="f-turns" type="number" min="0" value="${c.max_turns}"></div>
       <div><label>Max minutes</label><input id="f-minutes" type="number" min="0" value="${c.max_minutes}"></div>
-      <div><label>Push default</label><select id="f-push">${[["", "decide at review"], ["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
+      <div><label>Push default</label><select id="f-push">${[["", "decide at review"], ["merge", "merge into base"], ["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
         .map(([v, l]) => `<option value="${v}" ${v === c.push_default ? "selected" : ""}>${l}</option>`).join("")}</select></div>
     </div>`;
 }

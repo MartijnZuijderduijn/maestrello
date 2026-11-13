@@ -23,7 +23,7 @@ export async function loadDiffs(c) {
       }
       const empty = !d.diff && !d.log;
       return `<div class="repo"><div class="head"><b>${esc(d.repo.repo_path)}</b>
-        ${empty ? `<span class="meta">no changes — will be dropped</span>` : `<select data-repo="${d.repo.id}">${[["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
+        ${empty ? `<span class="meta">no changes — will be dropped</span>` : `<select data-repo="${d.repo.id}">${[["merge", `Merge into ${baseBranch(d.repo.base_ref)}`], ["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
           .map(([v, l]) => `<option value="${v}" ${v === (c.push_default || "local") ? "selected" : ""}>${l}</option>`).join("")}</select>`}</div>
         <div class="meta">${esc(d.repo.branch)} from ${esc(d.repo.base_ref)}</div>
         ${d.error ? `<div class="notice bad">${esc(d.error)}</div>` : ""}
@@ -33,6 +33,8 @@ export async function loadDiffs(c) {
   } catch (e) { el.textContent = e.message; }
   finally { el.removeAttribute("aria-busy"); }
 }
+// The local branch a base ref such as origin/main stands for.
+function baseBranch(ref) { return (ref || "").replace(/^origin\//, ""); }
 function colorDiff(s) {
   return s.split("\n").map((l) => {
     const e = esc(l);

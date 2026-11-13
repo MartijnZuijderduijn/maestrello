@@ -90,7 +90,7 @@ Manual moves: I can drag a card from any column to any other column (`POST /api/
 | permission_mode | `auto` (default), `acceptEdits`, `manual`, `dontAsk`, `plan`, `bypassPermissions` |
 | max_turns | Default 50. Enforced by the board. |
 | max_minutes | Default 45. Enforced by the board. |
-| push_default | Optional: `local` / `push` / `pr`. If unset, decided at review time. |
+| push_default | Optional: `merge` / `local` / `push` / `pr`. If unset, decided at review time. |
 | refined_prompt | Output of refinement, editable in Ready |
 | repos | Repo list from refinement, editable in Ready; agent may extend it via `add_repo` |
 | session_id | Claude session UUID (set by the board with `--session-id`) |
@@ -312,7 +312,8 @@ Notes the board writes for these changes name the origin ("moved to review by yo
 
 Per card:
 - The agent's summary, a full transcript view, turns/tokens/cost used.
-- **Per repo:** diff against the base branch, commit list, and an action: keep local / push branch / push + open PR (`gh pr create`). Defaults to the card's `push_default` when set.
+- **Per repo:** diff against the base branch, commit list, and an action: merge into the base branch / keep local / push branch / push + open PR (`gh pr create`). Defaults to the card's `push_default` when set.
+- **Merge (`merge`):** in the original checkout (`root_folder/repo_path`) merges the card branch into the branch the base ref points to (`origin/main` → local `main`). It only happens when that checkout is on that branch and has no uncommitted changes to tracked files; otherwise the branch is kept and the result reads "kept local on <branch>: not merged, <reason>". Fast-forward when possible, else a merge commit `maestrello: merge #<id> <title>`. A conflict is aborted (nothing changes), the branch is kept, and the conflict is reported in the result and a card note. After a merge the card branch is deleted and the result is "merged into main". It never pushes. The review UI lists "Merge into <base>" first; `approve_card` and `push_default` accept `merge`.
 - **Research:** the summary is shown as the **Report**, with no changes section. Approve → Done.
 - **Plan:** the plan, then a checklist of the proposed tasks (all ticked, with title, description, kind and repos), and the approve action is "Create N cards" for the ticked tasks. Send back with feedback revises the plan.
 - **Approve all** applies the chosen actions → Done and removes the worktrees.
