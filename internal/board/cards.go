@@ -417,9 +417,12 @@ func (a *App) leftReady(id int64) bool {
 
 var errNotDone = errors.New("card is not done")
 
-// deleteCard removes a card's board data (rows only; git branches are untouched)
+// deleteCard removes a card's board data (rows only; branches are untouched)
 // and tells open boards. With onlyDone set it refuses cards that are not in Done.
-func (a *App) deleteCard(id int64, onlyDone bool) error {
+// A card in any other column is first moved to Done, which keeps its work as local
+// branches and removes its worktrees and leases. A live agent is only halted when stop
+// is set (I confirmed); a card being refined cannot be deleted until refinement ends.
+func (a *App) deleteCard(id int64, onlyDone, stop bool) error {
 	c, err := a.store.GetCard(id)
 	if err != nil {
 		return err
@@ -427,14 +430,17 @@ func (a *App) deleteCard(id int64, onlyDone bool) error {
 	if onlyDone && c.Status != model.StatusDone {
 		return errNotDone
 	}
-	if c.Status != model.StatusTodo && c.Status != model.StatusReady && c.Status != model.StatusDone {
-		return errors.New("only todo, ready and done cards can be deleted")
-	}
-	if repos, _ := a.store.Repos(id); c.Status != model.StatusDone {
-		for _, r := range repos {
-			if r.WorktreePath != "" {
-				return errors.New("card has worktrees; discard it instead")
-			}
+	if c.Status != model.StatusDone {
+		if c.Status == model.StatusRefining {
+			return errors.New("the card is being refined; wait for it to finish")
+		}
+		if stop {
+			err = a.MoveStopping(id, model.StatusDone)
+		} else {
+			err = a.Move(id, model.StatusDone) // refused while an agent is live
+		}
+		if err != nil {
+			return err
 		}
 	}
 	if err := a.store.DeleteCard(id); err != nil {

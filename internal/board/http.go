@@ -301,7 +301,7 @@ func (a *App) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	if err := a.deleteCard(id, false); err != nil {
+	if err := a.deleteCard(id, false, r.URL.Query().Get("stop") == "1"); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -328,7 +328,7 @@ func (a *App) handleClearCards(w http.ResponseWriter, r *http.Request) {
 	done = cardsInProject(done, project)
 	n := 0
 	for _, c := range done {
-		switch err := a.deleteCard(c.ID, true); {
+		switch err := a.deleteCard(c.ID, true, false); {
 		case err == nil:
 			n++
 		case errors.Is(err, errNotDone), errors.Is(err, store.ErrNotFound):

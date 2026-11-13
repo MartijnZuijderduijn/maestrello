@@ -105,7 +105,7 @@ function cardHTML(c) {
   return `<div class="card ${c.warning ? "warn" : ""}${enterClass(c)}${selected.has(c.id) ? " selected" : ""}" draggable="true" tabindex="0" data-id="${c.id}"
     onmousedown="if (event.shiftKey) event.preventDefault()"
     ondragstart="dragStart(event)" ondragend="dragEnd()" onclick="cardClick(event, ${c.id})" onkeydown="cardKey(event, ${c.id})">
-    ${c.status === "done" ? `<button class="del" title="Delete card" onpointerdown="blockDrag()" onclick="deleteDoneCard(event, ${c.id})">×</button>` : ""}
+    <button class="del" title="Delete card" aria-label="Delete card #${c.id}" onpointerdown="blockDrag()" onclick="deleteDoneCard(event, ${c.id})">×</button>
     <div class="th">${avatarHTML(c, live)}<div class="t">${esc(c.title)}</div></div>
     <div class="m">#${c.id}${kindMeta(c)} · <span title="${esc(c.harness)}">${harnessIcon(c.harness)}${esc(c.harness)}</span> · ${esc(c.model)} · ${esc(c.effort)} · ${esc(c.permission_mode)}${c.turns_used ? ` · ${c.turns_used} turns` : ""}${c.auto_run && (c.status === "todo" || c.status === "refining" || c.status === "ready") ? ` · <span title="Runs automatically after refinement">auto</span>` : ""}${c.skip_refinement ? ` · <span title="Refinement was skipped: the card text is the prompt">unrefined</span>` : ""}</div>
     ${c.waiting_on ? `<div class="waiting" title="${esc(c.activity || "")}"><span>waiting on #${c.waiting_on}</span></div>` : ""}
@@ -113,15 +113,26 @@ function cardHTML(c) {
   </div>`;
 }
 
-// Done cards can be deleted (or cleared all at once) straight from the board. Deleting only
+// Cards in any column can be deleted (Done cards also all at once) straight from the board. Deleting only
 // removes board data, never branches. The "deleted" SSE events update the board.
 let dragBlocked = false; // pressing a card's delete button must not start a drag
 for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, () => dragBlocked = false);
 export async function deleteDoneCard(e, id) {
   e.stopPropagation();
   dragBlocked = false;
-  if (!confirm("Delete this card? Its branches are kept.")) return;
-  try { await api("DELETE", `/api/cards/${id}`); if (openId === id) closeDrawer(); }
+  const c = cards.get(id);
+  if (!c) return;
+  // A running card has a live agent (unless it only waits for a folder); a card needing input
+  // has one too. Other cards with work keep it as branches; their worktrees are removed.
+  const agent = (c.status === "running" && !c.waiting_on) || c.status === "needs_input";
+  const msg = c.status === "refining" ? null
+    : agent ? "The agent is still running. Stop it and delete the card? Its branches are kept."
+    : c.status === "running" ? "Take the card out of the queue and delete it?"
+    : c.status === "todo" || c.status === "ready" ? "Delete this card?"
+    : "Delete this card? Its worktrees are removed; its branches are kept.";
+  if (msg === null) return alert("The card is being refined; wait for it to finish.");
+  if (!confirm(msg)) return;
+  try { await api("DELETE", `/api/cards/${id}${c.status === "done" ? "" : "?stop=1"}`); if (openId === id) closeDrawer(); }
   catch (err) { alert(err.message); }
 }
 export async function clearDone(e, pid) {
