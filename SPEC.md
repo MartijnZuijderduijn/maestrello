@@ -109,7 +109,7 @@ A project is a named board with a root folder. It only organises cards and seeds
 
 ## Toolbox
 
-A fixed, harness-neutral catalog of optional agent tools (`toolbox.go`), switched on per card with the `tools` field. Each entry has an id, a label, a description and the harnesses that support it (each adapter maps the id to its own tool name):
+A fixed, harness-neutral catalog of optional agent tools (`internal/model/toolbox.go`), switched on per card with the `tools` field. Each entry has an id, a label, a description and the harnesses that support it (each adapter maps the id to its own tool name):
 
 | id | claude | opencode |
 |---|---|---|
@@ -141,7 +141,7 @@ Every kind runs through the same lifecycle, per-card MCP endpoint and UI. The ki
 
 ## Automatic model selection
 
-`Card.auto_model` (a column, default `false`; settable on create/edit, in the card forms and on the MCP tools) turns the manual model off for that card. `Settings.auto_model` (default `false`, `PUT /api/settings`) only seeds it for new cards. Code: `automodel.go`. Off: no code path of this feature runs; the refiner prompt and schema are unchanged.
+`Card.auto_model` (a column, default `false`; settable on create/edit, in the card forms and on the MCP tools) turns the manual model off for that card. `Settings.auto_model` (default `false`, `PUT /api/settings`) only seeds it for new cards. Code: `internal/board/automodel.go`. Off: no code path of this feature runs; the refiner prompt and schema are unchanged.
 
 On: `refine` builds the candidates (`modelCandidates`): every model of every *available* harness (claude's `knownModels`, other adapters' listed models) that has metadata in the catalog, the built-in `defaultModelInfo()` overridden/extended by `Settings.model_info` (`"<harness>/<model>"` → `{tier 1-5, cost >= 0}`; cost is a relative unit, 0 = free; validated on PUT). The prompt lists them and the schema adds `complexity` (1-5), `model`, `harness`, `model_reason`. The instructions ask for the smallest, cheapest model that does the task well, weighing capability against cost, preferring a free or cheaper adapter when capable enough.
 
@@ -238,7 +238,7 @@ Research and plan cards add `--tools "Read,Grep,Glob"` and run in the root folde
 
 ## Harness adapters
 
-Everything specific to one agent CLI sits behind the `Harness` interface (`harness.go`); there are two adapters: Claude Code (`harness_claude.go`) and opencode (`harness_opencode.go`). The board keeps the run bookkeeping (turns, limits, cost, `resultErr`/`rateLimit`, card transitions, `finish`); a harness only translates. Observable behaviour of the `claude` adapter is exactly what "Running a card" and "Refinement" describe.
+Everything specific to one agent CLI sits behind the `Harness` interface (`internal/harness/harness.go`); there are two adapters: Claude Code (`internal/harness/harness_claude.go`) and opencode (`internal/harness/harness_opencode.go`). The board keeps the run bookkeeping (turns, limits, cost, `resultErr`/`rateLimit`, card transitions, `finish`); a harness only translates. Observable behaviour of the `claude` adapter is exactly what "Running a card" and "Refinement" describe.
 
 **What an adapter provides**
 - `Name()` and `Caps()` (below), registered in the `harnesses` map; `harnessFor(name)` resolves a name (`""` is `claude`, unknown names are an error).
@@ -251,7 +251,7 @@ Everything specific to one agent CLI sits behind the `Harness` interface (`harne
 
 **The `harness` setting and card field.** `Settings.harness` (default `claude`) seeds new cards and picks the harness that runs refinement (refinement model and effort are settings, so they are the settings harness's). `Card.harness` picks the harness for the card's sessions. Both are validated against the registry; an empty value means `claude`, so old databases (column `harness`, default `claude`) and the web UI's settings PUT (which leaves it out) keep working. The UI shows it and has selectors for it (see *Web UI*). `GET /api/harnesses` lists the registered harnesses, sorted by name, as `[{"name", "efforts", "permission_modes", "available", "version", "error", "models"}]`: efforts and permission modes come from each `Caps`; `available`/`version`/`error` are the cached availability (below); `models` is claude's `knownModels` and, for opencode, the `provider/model` lines of `opencode models` (empty when opencode is unavailable). `?refresh=1` re-checks every adapter first. The UI fills its harness, model, effort and permission-mode selects from it. Over HTTP an unknown `harness` on `POST`/`PATCH /api/cards` or `PUT /api/settings` is a 400.
 
-**Availability.** A harness is *available* when its binary resolves (`exec.LookPath` for a bare name, an existing file for a path) and `<bin> --version` exits 0 within 5 seconds. `refreshAvailability` (`harness_avail.go`) checks every adapter in the background at startup and on `GET /api/harnesses?refresh=1`, keeps the result (version line or error text, plus opencode's model list) in memory and publishes an SSE `harnesses` event; requests only read the cache, never run the CLI. A harness with no cached result for its current binary (the path is read at call time) is checked once on first use. Starting a session or a refinement on an unavailable harness fails the card with `harness <name> is not available: <reason>` and starts no process. Creating or editing cards and settings on an unavailable harness is still allowed (validation is registry-based). `claude auth status` (header account) stays claude-only.
+**Availability.** A harness is *available* when its binary resolves (`exec.LookPath` for a bare name, an existing file for a path) and `<bin> --version` exits 0 within 5 seconds. `refreshAvailability` (`internal/board/harness_avail.go`) checks every adapter in the background at startup and on `GET /api/harnesses?refresh=1`, keeps the result (version line or error text, plus opencode's model list) in memory and publishes an SSE `harnesses` event; requests only read the cache, never run the CLI. A harness with no cached result for its current binary (the path is read at call time) is checked once on first use. Starting a session or a refinement on an unavailable harness fails the card with `harness <name> is not available: <reason>` and starts no process. Creating or editing cards and settings on an unavailable harness is still allowed (validation is registry-based). `claude auth status` (header account) stays claude-only.
 
 **Capabilities and fallbacks** (`Caps`)
 - `Resume` false: a resume starts a fresh session with the refined prompt plus the user's message, as for a card that never got a session.
@@ -261,7 +261,7 @@ Everything specific to one agent CLI sits behind the `Harness` interface (`harne
 
 The board itself implements the `Resume` fallback and the `PerTurnEvents` note; the other two follow from the adapter (it simply omits the permission flag, or reads the text), since the board only reads what `ParseEvent` and `ParseRefineResult` return.
 
-**The `opencode` adapter** (`harness_opencode.go`) drives `opencode run --format json` (opencode 1.2.x, as installed here; models are `provider/model`, e.g. `ollama/qwen3-coder:30b`, and the board has no say in which providers exist: they come from the user's own opencode config).
+**The `opencode` adapter** (`internal/harness/harness_opencode.go`) drives `opencode run --format json` (opencode 1.2.x, as installed here; models are `provider/model`, e.g. `ollama/qwen3-coder:30b`, and the board has no say in which providers exist: they come from the user's own opencode config).
 - *Caps:* `Resume` true, `PermissionCallback` false, `StructuredOutput` false, `PerTurnEvents` true. `Efforts` is empty (opencode's `--variant` is provider specific), so only `""` is a valid effort; `PermissionModes` are `auto` (edit, bash and webfetch allowed) and `plan` (read-only). `""` is not a valid mode. Settings accept an empty effort for a harness without efforts.
 - *Session ids:* opencode cannot start a session under a preset id (it makes `ses_...` itself), so the adapter reports the id from the stream as `HarnessEvent.SessionID` and the runner overwrites `card.session_id` with it. A resume uses `-s <id>`; an id that is not a `ses_...` id (the board's pre-assigned UUID, when the run died before its first event) cannot be resumed (`SessionChecker`), so the board starts fresh with the refined prompt plus the message.
 - *Command:* `opencode run --format json --agent maestrello [-m <model>] [-s <id>]`, the prompt on stdin, `OPENCODE_CONFIG=<MCPConfigPath>`. That file holds the board's MCP server (`type: remote`, `url` = the card's MCP URL, long timeout for `ask_user`), an `agent.maestrello` with the tools and permissions of the card kind, and an `instructions` entry pointing at `<MCPConfigPath>.instructions.md` (the board instructions, with `mcp__maestrello__x` rewritten to opencode's `maestrello_x`; this keeps opencode's own system prompt). It is merged over the user's config, so their providers stay.
@@ -322,7 +322,7 @@ Per card:
 
 ## Folder picker API
 
-`GET /api/fs/list` (`fs.go`) lists one directory for the web UI's folder/file picker. It returns names and types only, never file contents.
+`GET /api/fs/list` (`internal/board/fs.go`) lists one directory for the web UI's folder/file picker. It returns names and types only, never file contents.
 
 - **Request** (query): `path` (absolute; when left out the start is the `default_root_folder` setting, else the sandbox root, else the home directory, else `/`), `files=1` (also list regular files; otherwise only folders), `hidden=1` (include names starting with `.`; hidden by default). A relative `path`, a path that is not a directory or cannot be read, a path outside the sandbox and a path inside the board's data directory are each a 400 `{"error": "…"}`.
 - **Response:** `{"path": "<cleaned path>", "parent": "<parent dir>", "entries": [{"name", "type": "dir"|"file", "is_repo": bool}], "truncated": bool}`. Folders come first, then files, each sorted by name. `is_repo` is true for a folder that is a git repo (files are always false). `parent` is left out at the file system root and when the parent is outside the sandbox. At most 2000 entries (`fsListCap`) are returned; `truncated` is true when there were more.
@@ -331,11 +331,11 @@ Per card:
 
 ## Web UI layout
 
-The UI needs no build step: `web/` is embedded as is (`//go:embed web`) and served by `http.FileServerFS`, so `.js` and `.css` get their content types from the extension. `index.html` holds only the markup, three stylesheet links and `<script type="module" src="js/main.js">`. The markup's inline `on*=` handlers find their functions on `window`, which `js/main.js` fills. Read only the file for the area you change.
+The UI needs no build step: `frontend/` is embedded as is (`frontend/embed.go`, `//go:embed index.html *.css *.svg *.png *.ico js`, exposed as `frontend.FS`) and served by `http.FileServerFS`, so `.js` and `.css` get their content types from the extension. `index.html` holds only the markup, three stylesheet links and `<script type="module" src="js/main.js">`. The markup's inline `on*=` handlers find their functions on `window`, which `js/main.js` fills. Read only the file for the area you change.
 
 CSS (linked in this order): `style.css` (variables, header, board, columns, cards, buttons), `modal.css` (the modal/drawer, forms, detail sections, diffs), `account.css` (account chip, popover, usage gauges).
 
-JavaScript (`web/js/`, plain ES modules; modules import each other, cycles are fine because only functions cross them at call time):
+JavaScript (`frontend/js/`, plain ES modules; modules import each other, cycles are fine because only functions cross them at call time):
 - `main.js`: startup (info, models, harnesses, toolbox, first load, SSE) and the `window` exports for the inline handlers.
 - `state.js`: `COLUMNS`, `MODES`, `EFFORTS` and the state shared everywhere (`cards`, `openId`, `detail`, with `setCards`/`setOpenId`/`setDetail`: an importer cannot assign to a binding).
 - `util.js`: `$`, `esc`, `lsGet`/`lsSet`, `select`.
@@ -389,10 +389,11 @@ All development testing stays inside this project folder. Touching real repos ou
 
 - **Fake repos only:** `testdata/` holds a setup script that creates throwaway git repos plus a local bare repo for each as its `origin`. Fetch and push only ever hit those bare repos.
 - **Workspace root override:** tests and dev runs set the workspace root to `testdata/work/`, never `~/.maestrello`.
+- **Sandbox:** the sandbox is the path guard (`internal/sandbox`) plus the `testdata/` fixtures (`internal/testenv` locates them for tests).
 - **Path guard in code:** a dev/test flag (`--sandbox-root <dir>`) makes the board refuse any `root_folder`, repo path, worktree path or `--add-dir` that doesn't resolve (after symlinks) inside that directory. It's on for every test run.
 - **No real remotes or PRs:** `gh pr create` and pushes to non-local remotes are disabled in sandbox mode. They're stubbed and logged instead.
 - **Agent runs in tests** use `root_folder` = a `testdata/` fixture, so `--add-dir` and the working directory both stay inside the project.
-- **The folder picker stays in the sandbox too:** `GET /api/fs/list` goes through the same path guard, so with `--sandbox-root` it can only list inside the sandbox, and its tests (`fs_test.go`, `context_test.go`) run against the `testdata/` fixtures and scratch directories under the project folder, never real folders (context paths in tests are created inside the sandbox too).
+- **The folder picker stays in the sandbox too:** `GET /api/fs/list` goes through the same path guard, so with `--sandbox-root` it can only list inside the sandbox, and its tests (`internal/board/fs_test.go`, `internal/board/context_test.go`) run against the `testdata/` fixtures and scratch directories under the project folder, never real folders (context paths in tests are created inside the sandbox too).
 
 ## Decision record
 

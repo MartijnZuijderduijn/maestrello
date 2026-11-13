@@ -5,7 +5,7 @@ A local kanban board where Claude Code agents work your cards: coding tasks, and
 ## Install and run
 
 ```bash
-go install .
+go install ./cmd/maestrello
 ```
 
 This puts a `maestrello` binary in `$(go env GOPATH)/bin` (add it to your `PATH`). The web UI is embedded, so it runs from any directory.
@@ -100,9 +100,19 @@ Cards are grouped into projects: a named board with a root folder. Pick what to 
 
 ### Using the board to improve the board
 
-The web UI is compiled into the binary, so changes an agent makes to this folder (Go code or anything under `web/`) only show up after a rebuild. Restarting the old binary is not enough. Use `maestrello restart`, which rebuilds from the folder the binary was built from (or `-src <folder>`). On start, `maestrello` warns when that source is newer than the binary.
+The web UI is compiled into the binary, so changes an agent makes to this folder (Go code or anything under `frontend/`) only show up after a rebuild. Restarting the old binary is not enough. Use `maestrello restart`, which rebuilds from the folder the binary was built from (or `-src <folder>`). On start, `maestrello` warns when that source is newer than the binary.
 
 Stopping a board ends its agent sessions. A card that was working goes to Failed (send it back to continue the same session). A card waiting on your answer stays in Needs input, and answering it after the next start resumes the session.
+
+## Layout
+
+- `cmd/maestrello`: the `main` package, a thin call into `internal/cli`.
+- `internal/cli`: the command line (`start`, `stop`, `restart`, `mcp`, ...), rebuild and the stdio MCP bridge.
+- `internal/board`: the board itself: card lifecycle, runner, leases, review, HTTP API and MCP endpoints.
+- `internal/model`, `internal/store`, `internal/settings`: the data types, the SQLite store, and layered settings resolution and validation.
+- `internal/harness`: the agent CLI adapters (Claude Code, opencode). `internal/gitops`: git and `gh`. `internal/sandbox`: the path guard. `internal/textutil`: small string helpers.
+- `internal/testenv`: what the tests share: the `testdata/` fixtures, scratch dirs and fake agent CLIs.
+- `frontend/`: the web UI (plain ES modules, no build step), embedded into the binary.
 
 ## Develop and test (sandbox only)
 
@@ -110,13 +120,13 @@ Never point a dev build at real repos. Sandbox mode refuses any path outside the
 
 ```bash
 ./testdata/setup.sh                 # fake repos in testdata/project, bare origins in testdata/origins
-go run . start -sandbox-root testdata  # data in testdata/work; use testdata/project as the root folder
+go run ./cmd/maestrello start -sandbox-root testdata  # data in testdata/work; use testdata/project as the root folder
 ```
 
 To exercise the board without a model, use the fake CLI (`testdata/fake-claude.sh`, see its header for the keywords it reacts to):
 
 ```bash
-go run . -sandbox-root testdata -data testdata/work-fake -claude testdata/fake-claude.sh -opencode testdata/fake-opencode.sh
+go run ./cmd/maestrello -sandbox-root testdata -data testdata/work-fake -claude testdata/fake-claude.sh -opencode testdata/fake-opencode.sh
 ```
 
 `testdata/fake-opencode.sh` does the same for the opencode harness (a fake `--version`, `models`, and `run --format json`).

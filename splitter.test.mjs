@@ -1,7 +1,7 @@
 // Run with: node --test splitter.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MIN_LANE, collapsedLast, resizePair } from "./web/js/splitter.js";
+import { MIN_LANE, collapsedLast, resizePair } from "./frontend/js/splitter.js";
 
 test("dragging down grows the upper pane and shrinks the lower one", () => {
   assert.deepEqual(resizePair(300, 300, 50), [350, 250]);

@@ -1,7 +1,7 @@
 // Run with: node --test marquee.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { idsInRect, intersects, normRect } from "./web/js/marquee.js";
+import { idsInRect, intersects, normRect } from "./frontend/js/marquee.js";
 
 const r = (left, top, right, bottom) => ({ left, top, right, bottom });
 
