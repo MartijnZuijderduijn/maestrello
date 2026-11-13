@@ -248,3 +248,24 @@ func TestMistralValidationAndRegistry(t *testing.T) {
 		t.Errorf("Names = %v", Names())
 	}
 }
+
+func TestMistralUserModels(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("VIBE_HOME", home)
+	cfg := "theme = \"auto\"\nactive_model = \"mine\"\n\n[[providers]]\nname = \"p\"\n\n[[models]]\nname = \"x\"\nalias = \"mine\"\nprovider = \"p\"\n\n[tools.bash]\npermission = \"ask\"\n"
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := (mistralHarness{}).ListModels(); !slices.Equal(got, []string{"mistral-medium-3.5", "mine"}) {
+		t.Errorf("ListModels = %v", got)
+	}
+	out := mvConfig([]string{"read_file"}, "")
+	for _, want := range []string{"active_model = \"mine\"", "[[models]]", "alias = \"mine\"", "[[providers]]"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("config lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "permission = \"ask\"") || strings.Contains(out, "theme") {
+		t.Errorf("config copied unrelated settings:\n%s", out)
+	}
+}
