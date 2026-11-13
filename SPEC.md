@@ -66,7 +66,6 @@ Manual moves: I can drag a card from any column to any other column (`POST /api/
 - **→ Ready** does not need a refined prompt either: refining is optional, and a card without one gets the card text (as for *Skipping refinement*) as its prompt, so the agent works with the context available. Send back works the same way. Other targets only change the status.
 - A Todo card with `skip_refinement` set needs no refined prompt for **→ Ready** or **→ Running**: the board first skips its refinement (see *Skipping refinement*), keeping a prompt the card already has. Run and Start all treat such a card the same way. Cards without the flag get the same prompt fallback, but are not otherwise skipped.
 - Leaving Needs input closes its open question/limit input.
-- A Done card whose worktrees were removed can't be moved out of Done.
 
 ## Card fields
 
