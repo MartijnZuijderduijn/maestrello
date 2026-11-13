@@ -1,5 +1,0 @@
-[user]
-	name = claudeban-test
-	email = test@claudeban.invalid
-[init]
-	defaultBranch = main
