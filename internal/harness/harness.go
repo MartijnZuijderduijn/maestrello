@@ -135,6 +135,7 @@ type SessionChecker interface {
 var harnesses = map[string]func(cfg HarnessConfig) Harness{
 	"claude":   func(cfg HarnessConfig) Harness { return claudeHarness{bin: cfg.Bin} },
 	"opencode": func(cfg HarnessConfig) Harness { return newOpencodeHarness(cfg.Bin) },
+	"mistral":  func(cfg HarnessConfig) Harness { return newMistralHarness(cfg.Bin) },
 }
 
 // harnessFor resolves a harness name for validation and parsing; "" is claude.

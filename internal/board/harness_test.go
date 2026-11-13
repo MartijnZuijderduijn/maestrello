@@ -59,7 +59,7 @@ func TestHarnessesEndpoint(t *testing.T) {
 	if code := sendJSON(t, "GET", app.baseURL+"/api/harnesses", nil, &got); code != 200 {
 		t.Fatalf("GET /api/harnesses = %d", code)
 	}
-	if len(got) != 2 || got[0].Name != "claude" || got[1].Name != "opencode" {
+	if len(got) != 3 || got[0].Name != "claude" || got[1].Name != "mistral" || got[2].Name != "opencode" {
 		t.Fatalf("harnesses = %+v", got)
 	}
 	claude, _ := harness.For("claude")

@@ -35,13 +35,13 @@ Run "maestrello start -h" for the start flags.
 `
 
 type startOpts struct {
-	addr, dataDir, sandboxRoot, claudeBin, opencodeBin, src string
-	open                                                    bool
+	addr, dataDir, sandboxRoot, claudeBin, opencodeBin, mistralBin, src string
+	open                                                                bool
 }
 
 // boardOptions is what the board itself needs of the start flags.
 func (o *startOpts) boardOptions() board.Options {
-	return board.Options{Addr: o.addr, DataDir: o.dataDir, SandboxRoot: o.sandboxRoot, ClaudeBin: o.claudeBin, OpencodeBin: o.opencodeBin}
+	return board.Options{Addr: o.addr, DataDir: o.dataDir, SandboxRoot: o.sandboxRoot, ClaudeBin: o.claudeBin, OpencodeBin: o.opencodeBin, MistralBin: o.mistralBin}
 }
 
 // openBrowser opens url in the user's browser. Replaced in tests.
@@ -119,6 +119,7 @@ func parseStart(args []string, out io.Writer) (*startOpts, error) {
 	fs.StringVar(&o.sandboxRoot, "sandbox-root", "", "refuse every path outside this directory and stub out PRs (for development and tests)")
 	fs.StringVar(&o.claudeBin, "claude", "claude", "path to the claude CLI")
 	fs.StringVar(&o.opencodeBin, "opencode", "opencode", "path to the opencode CLI")
+	fs.StringVar(&o.mistralBin, "mistral", "vibe", "path to the Mistral Vibe CLI (vibe)")
 	fs.BoolVar(&o.open, "open", true, "open the board in the browser once it is up")
 	fs.StringVar(&o.src, "src", "", "source folder to rebuild from on restart (default: where this binary was built)")
 	if err := fs.Parse(args); err != nil {
@@ -129,7 +130,7 @@ func parseStart(args []string, out io.Writer) (*startOpts, error) {
 	}
 	// A relative claude path (e.g. testdata/fake-claude.sh) must survive the
 	// changed working directories of the sessions it starts.
-	for _, bin := range []*string{&o.claudeBin, &o.opencodeBin} {
+	for _, bin := range []*string{&o.claudeBin, &o.opencodeBin, &o.mistralBin} {
 		if *bin != filepath.Base(*bin) {
 			abs, err := filepath.Abs(*bin)
 			if err != nil {

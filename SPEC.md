@@ -83,7 +83,7 @@ Manual moves: I can drag a card from any column to any other column (`POST /api/
 | restrict_refinement | Obsolete and ignored: refinement never reads code. The column and JSON field stay so old data and clients keep working; the UI no longer offers it. |
 | auto_run | Checkbox, default from the settings (off unless changed). If set, the card is run as soon as refinement succeeds, skipping review in Ready. Editable in Todo and Ready. |
 | skip_refinement | Checkbox, default from the `default_skip_refinement` setting (off unless changed). If set, the card needs no refinement: see *Skipping refinement*. Can be set when creating the card or later while it is in Todo; in Ready it can no longer change. Asking for refinement (Refine, or a move to Refining) clears it, because the prompt is then a refined one. |
-| harness | The coding-agent CLI that runs the card's sessions. Default `claude`; the other adapter is `opencode`. Seeded from the `harness` setting; `""` means `claude`. An unknown name is rejected (`unknown harness`). Effort and permission mode are validated by the chosen harness. |
+| harness | The coding-agent CLI that runs the card's sessions. Default `claude`; the other adapters are `opencode` and `mistral`. Seeded from the `harness` setting; `""` means `claude`. An unknown name is rejected (`unknown harness`). Effort and permission mode are validated by the chosen harness. |
 | model | Default `sonnet`. Refinement model separately configurable (default `sonnet`, `haiku` allowed). The UI offers these as a dropdown fed by `GET /api/models`: the CLI has no model-listing command, so the server returns a static list (aliases `sonnet`/`opus`/`haiku` plus full IDs); a card's saved model that is not in the list stays selectable. |
 | auto_model | Per card, default from `Settings.auto_model` (off). Replaces this manual model: see *Automatic model selection*. |
 | effort | `low` / `medium` / `high` / `xhigh` / `max`. Default `medium`. |
@@ -111,11 +111,11 @@ A project is a named board with a root folder. It only organises cards and seeds
 
 A fixed, harness-neutral catalog of optional agent tools (`internal/model/toolbox.go`), switched on per card with the `tools` field. Each entry has an id, a label, a description and the harnesses that support it (each adapter maps the id to its own tool name):
 
-| id | claude | opencode |
-|---|---|---|
-| `web_search` | `WebSearch` | `websearch` |
-| `web_fetch` | `WebFetch` | `webfetch` |
-| `skills` | `Skill` | not supported |
+| id | claude | opencode | mistral |
+|---|---|---|---|
+| `web_search` | `WebSearch` | `websearch` | not supported |
+| `web_fetch` | `WebFetch` | `webfetch` | not supported |
+| `skills` | `Skill` | not supported | not supported |
 
 - `GET /api/toolbox` returns the catalog: `[{"id", "label", "description", "harnesses"}]`.
 - A tool only ever fetches information: no toolbox entry gives a chat or read-only card file-write or bash access.
@@ -160,7 +160,7 @@ claude -p --output-format json \
   --json-schema '<schema>' \
   "<refinement instructions + card text>"
 ```
-Working directory: the board's data dir, not the root folder. Refinement only clarifies the card text; it does not explore code (the run agent does that). The prompt lists the root folder and the repos under it (`DiscoverRepos` plus `.`) so the refiner can plan repos by name; planned repos not on that list are dropped with a note. The opencode adapter has no turn cap.
+Working directory: the board's data dir, not the root folder. Refinement only clarifies the card text; it does not explore code (the run agent does that). The prompt lists the root folder and the repos under it (`DiscoverRepos` plus `.`) so the refiner can plan repos by name; planned repos not on that list are dropped with a note. The opencode and mistral adapters have no turn cap.
 
 When the card has `context`, the refinement prompt lists the paths ("Additional context (read-only reference):", each with its type). The default refinement sees the names only and cannot read them. A deep refinement (`deep_refinement`, which runs from the root folder with `Read,Grep,Glob`) also gets the context folders through `RefineSpec.ExtraDirs` (`contextDirs`: each dir and the parent of each file, minus anything already under the root); see *Harness adapters*.
 
@@ -238,11 +238,11 @@ Research and plan cards add `--tools "Read,Grep,Glob"` and run in the root folde
 
 ## Harness adapters
 
-Everything specific to one agent CLI sits behind the `Harness` interface (`internal/harness/harness.go`); there are two adapters: Claude Code (`internal/harness/harness_claude.go`) and opencode (`internal/harness/harness_opencode.go`). The board keeps the run bookkeeping (turns, limits, cost, `resultErr`/`rateLimit`, card transitions, `finish`); a harness only translates. Observable behaviour of the `claude` adapter is exactly what "Running a card" and "Refinement" describe.
+Everything specific to one agent CLI sits behind the `Harness` interface (`internal/harness/harness.go`); there are three adapters: Claude Code (`internal/harness/harness_claude.go`), opencode (`internal/harness/harness_opencode.go`) and Mistral Vibe (`internal/harness/harness_mistral.go`). The board keeps the run bookkeeping (turns, limits, cost, `resultErr`/`rateLimit`, card transitions, `finish`); a harness only translates. Observable behaviour of the `claude` adapter is exactly what "Running a card" and "Refinement" describe.
 
 **What an adapter provides**
 - `Name()` and `Caps()` (below), registered in the `harnesses` map; `harnessFor(name)` resolves a name (`""` is `claude`, unknown names are an error).
-- `SessionCommand(SessionSpec)`: the process for one session: arguments, environment, working directory, the prompt on stdin, and the MCP config file it needs (written at `MCPConfigPath`, so the board can remove it later). `SessionSpec` carries the card (model, effort, permission mode, session id, toolbox tools), prompt, board instructions, MCP URL, working directory, root folder, whether to resume, whether MCP is strict and `Context` (the card's existing context items, `[]ContextItem{Path, Type}`; empty for chat). `RefineSpec` carries model, effort, prompt, working directory, tools, turn cap, schema and `ExtraDirs` (extra read-only folders for a deep refinement with context). The board sets the process group and stderr and starts it. Each adapter has its own binary path (`HarnessConfig.Bin`; the flags `-claude` and `-opencode`, `App.claudeBin` / `App.opencodeBin`), read at call time through `App.harness`.
+- `SessionCommand(SessionSpec)`: the process for one session: arguments, environment, working directory, the prompt on stdin, and the MCP config file it needs (written at `MCPConfigPath`, so the board can remove it later). `SessionSpec` carries the card (model, effort, permission mode, session id, toolbox tools), prompt, board instructions, MCP URL, working directory, root folder, whether to resume, whether MCP is strict and `Context` (the card's existing context items, `[]ContextItem{Path, Type}`; empty for chat). `RefineSpec` carries model, effort, prompt, working directory, tools, turn cap, schema and `ExtraDirs` (extra read-only folders for a deep refinement with context). The board sets the process group and stderr and starts it. Each adapter has its own binary path (`HarnessConfig.Bin`; the flags `-claude`, `-opencode` and `-mistral`, `App.claudeBin` / `App.opencodeBin` / `App.mistralBin`), read at call time through `App.harness`.
 - `ParseEvent(line)`: one stdout line as a `HarnessEvent`: `Kind` (stored as the event's type), the assistant turn (`TurnID`, `Activity`), the final result (`CostUSD`, `IsError`/`ResultError`), `RateLimited` + message, `SessionID` (for a CLI that makes its own session ids: the runner saves it on the card) and `UsageInfo` (pass the line to the header usage display). An error makes the board note `unparsed output: ...` and go on.
 - `RefineCommand` and `ParseRefineResult`: the one-shot, read-only refinement (model, effort, tools, JSON schema) and its output (`Structured` JSON, text, cost, is-error).
 - `ValidateEffort` and `ValidatePermissionMode`; `Caps.Efforts` / `Caps.PermissionModes` list what is allowed.
@@ -271,6 +271,16 @@ The board itself implements the `Resume` fallback and the `PerTurnEvents` note; 
 - *Events:* `text` and `tool_use` are assistant turns (turn id = `part.messageID`, activity from the text or `toolActivity` of the tool input), `step_finish` carries the step cost (the board sums it; Ollama is 0), `error` is an error result (a rate-limit message sets `RateLimited`). There is no final result line: the run ends when the process exits.
 - *Refinement:* read-only (`edit`/`bash`/`webfetch` denied, only the read tools the refiner asks for), config passed inline in `OPENCODE_CONFIG_CONTENT` with no MCP server of its own. The schema is added to the prompt, and `ParseRefineResult` joins the text parts and takes the JSON object from the text (plain, in a ```json fence, or the outermost `{...}`).
 - *Not verified live:* the event shapes follow opencode's documented JSON events and the error line seen from the installed CLI; no full model run was possible while building this, so `testdata/fake-opencode.sh` is modelled on them. The `"*": false` tool wildcard relies on opencode's tool patterns.
+
+**The `mistral` adapter** (`internal/harness/harness_mistral.go`) drives Mistral Vibe (`vibe`) in programmatic mode. It was written from the public Vibe docs (docs.mistral.ai/vibe) with the CLI **not installed**, so nothing was run against the real binary.
+- *Caps:* `Resume` **false**, `PermissionCallback` false, `StructuredOutput` false, `PerTurnEvents` true. `Efforts` is empty (Vibe's `thinking` is per model in its config); `PermissionModes` are `auto` and `plan`. A resume (send back, restart) therefore starts fresh with the refined prompt plus the message. Vibe has `--resume <id>`, but the docs do not say where a run reports its session id, so the adapter reports none (`HarnessEvent.SessionID` stays empty) rather than guess.
+- *Command:* `vibe -p --output streaming --agent maestrello --trust [--model <alias>] --enabled-tools <name>...`, the prompt on stdin (`-p` without text), `VIBE_HOME=<MCPConfigPath>.vibe`. That per-card home holds `config.toml` (top-level `default_agent`/`enabled_tools`, the board's MCP server as `[[mcp_servers]]` with `transport = "streamable-http"`, `url` = the card's MCP URL and a long `tool_timeout_sec` for `ask_user`, and `[tools.<name>] permission = "always"` for each enabled tool) and `agents/maestrello.toml` (the board instructions as `instructions`, which Vibe appends after its own system prompt; `mcp__maestrello__x` is rewritten to Vibe's `maestrello_x`). The user's `.env` (API key) is symlinked in. A small JSON file is also written at `MCPConfigPath` so the board's cleanup finds it.
+- *MCP:* the session reaches the board's MCP server through `[[mcp_servers]]`; MCP tools are named `<server>_<tool>`. Because the home is separate, the user's own `config.toml` (custom models, providers, MCP servers) is **not** loaded: `--model` takes Vibe's built-in aliases/IDs. Strict mode needs no extra step, as no user MCP servers are loaded.
+- *Permissions:* programmatic Vibe denies any tool call that would need approval, so the adapter lists exactly the tools of the card kind (`--enabled-tools`) and sets them to `always`. Code gets `read_file`, `grep`, `write_file`, `edit`, `search_replace`, `bash` plus `report_done`, `report_failed`, `ask_user`, `add_repo`; research gets the read tools plus `report_done`/`report_failed`/`ask_user`; plan the read tools plus `report_plan`/`report_failed`/`ask_user`; chat only `report_failed`/`ask_user`. `plan` mode on a code card drops the write tools. Read-only kinds have no write tool at all.
+- *Toolbox:* no entry is supported (the docs name no web or skill tools); each is skipped with the card note `tool <id> not supported by mistral; skipped`.
+- *Events:* each streamed line is a message (`role`, `content`, `tool_calls[].function.{name,arguments}`). An `assistant` message is a turn (turn id = `message_id`, else a hash of the line); a tool call sets the activity. There is no result line and no cost, so cost stays 0 and a failed run is seen through the exit code and stderr.
+- *Refinement:* `vibe -p --output text` with read-only tools (`read_file`, `grep`) and no MCP server, in a temporary `VIBE_HOME`; the schema is added to the prompt and `ParseRefineResult` takes the JSON object from the final text. No turn cap, and no extra read dirs are passed.
+- *Not verified live:* the streamed message shape (the docs only say "one JSON object per message"; the OpenAI-style message above is an assumption), the `agents/*.toml` keys, the `--enabled-tools` pattern `re:^$` used to switch every tool off in a refinement without tools, whether `enabled_tools` in the agent/config accepts the `maestrello_*` names, and the built-in names `search_replace`. `testdata/fake-mistral.sh` is modelled on these assumptions.
 
 ## Board MCP tools (per card)
 
