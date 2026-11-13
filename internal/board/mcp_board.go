@@ -31,7 +31,7 @@ func editFields() [][2]any {
 		optProp("harness", "string", "Coding-agent CLI that runs the card; claude is the only one (empty for the board's default)"),
 		optProp("max_turns", "integer", "Turn limit (0 for none)"),
 		optProp("max_minutes", "integer", "Wall-clock limit in minutes (0 for none)"),
-		optProp("push_default", "string", "local, push or pr; what approval does by default (empty to ask)"),
+		optProp("push_default", "string", "merge, local, push or pr; what approval does by default (empty to ask)"),
 		optProp("auto_model", "boolean", "Let the refiner pick the smallest capable model and adapter for this card, ignoring model (which stays the fallback); defaults to the board setting"),
 		optProp("auto_run", "boolean", "Run as soon as refinement succeeds (with skip_refinement: run at once)"),
 		optProp("skip_refinement", "boolean", "Skip the refinement session, which costs tokens: the card goes straight to Ready with the title and description as its prompt (the description alone when the title was derived) "+
@@ -81,10 +81,11 @@ var boardTools = []map[string]any{
 			optProp("text", "string", "The answer, or a note with the allow/deny decision"),
 			optProp("allow", "boolean", "Allow a permission request"))...),
 	tool("approve_card", "Approve a card in review: applies the per-repo actions, removes the worktrees and moves it to done. "+
+		"merge merges the branch into the base branch of the local checkout (never pushes) when that checkout is on it and clean; otherwise the branch is kept. "+
 		"Approving a plan card creates one Todo card per selected task. "+
 		"Pushing or opening a PR leaves this machine, so only choose push or pr after the user confirmed.",
 		withID([2]any{"?actions", map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
-			"description": "Repo id (from get_card) to local, push or pr; repos left out use the card's push default, then local"}},
+			"description": "Repo id (from get_card) to merge, local, push or pr; repos left out use the card's push default, then local"}},
 			[2]any{"?tasks", map[string]any{"type": "array", "items": map[string]any{"type": "integer"},
 				"description": "Plan cards: indices (from 0, into plan_tasks) of the tasks to create as cards; left out creates all of them, an empty list none"}})...),
 	tool("discard_card", "Discard a card: removes its worktrees and branches and moves it to done. The work is lost, so only after the user confirmed.",

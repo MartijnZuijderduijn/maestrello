@@ -53,7 +53,7 @@ Every card runs with a harness, the coding-agent CLI behind it (`claude` or `ope
 
 Every card has a kind (a select in the new-card form and the card editor; `kind` over the API and MCP). They share the lifecycle, the MCP endpoint and the UI:
 
-- `code` (default): edits repos in worktrees (or local work); `report_done`, then you review the diffs and approve.
+- `code` (default): edits repos in worktrees (or local work); `report_done`, then you review the diffs and approve. On approve each repo gets an action: **Merge into <base>** (merges the card branch into the base branch of your local checkout, only when that checkout is on that branch with no uncommitted changes to tracked files; fast-forward when possible, else a merge commit `maestrello: merge #<id> <title>`; a conflict is aborted and the branch kept; the branch is deleted after a merge; never pushes), keep local, push branch, or push + PR.
 - `research`: reads the codebase under the root folder (Read, Grep, Glob only; no worktrees, no leases) and ends with a written report via `report_done`. Review shows it as the Report; Approve closes the card.
 - `plan`: reads the codebase and calls `report_plan(plan, tasks)`. Review shows the plan and a checklist of the proposed tasks; "Create N cards" approves the plan and the board creates one Todo card per ticked task in the same project (over MCP: `approve_card` with `tasks`, the indices to create). Agents never create cards themselves. Send back with feedback revises the plan.
 - `chat`: a conversation with no built-in tools (unless you switch on toolbox tools such as web search) and no refinement. Each reply lands in Needs input; your answer resumes the same session; "Close chat" (or moving the card to Done) ends it.

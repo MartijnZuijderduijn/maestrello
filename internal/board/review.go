@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -50,7 +51,7 @@ func (a *App) Diffs(id int64) ([]RepoDiff, error) {
 	return out, nil
 }
 
-// Approve applies a per-repo action (local, push, pr), removes the worktrees and closes the card.
+// Approve applies a per-repo action (merge, local, push, pr), removes the worktrees and closes the card.
 // Repos without changes are dropped. A plan card creates all of its proposed tasks as cards.
 func (a *App) Approve(id int64, actions map[int64]string) error {
 	return a.ApproveSelected(id, actions, nil)
@@ -152,9 +153,12 @@ func (a *App) closeRepos(card *model.Card, actions map[int64]string) error {
 		if action == "" {
 			action = "local"
 		}
+		merged := false
 		switch action {
 		case "local":
 			r.Result = "kept local on " + r.Branch
+		case "merge":
+			merged = a.mergeLocal(ctx, card, r, orig)
 		case "push", "pr":
 			if err := a.git.Push(ctx, orig, r.Branch); err != nil {
 				return fmt.Errorf("%s: push: %w", r.RepoPath, err)
@@ -176,10 +180,53 @@ func (a *App) closeRepos(card *model.Card, actions map[int64]string) error {
 		if err := a.git.RemoveWorktree(ctx, orig, r.WorktreePath); err != nil {
 			return fmt.Errorf("%s: %w", r.RepoPath, err)
 		}
+		if merged { // the branch is free once its worktree is gone
+			if err := a.git.DeleteBranch(ctx, orig, r.Branch); err != nil {
+				r.Result += "; could not delete " + r.Branch + ": " + err.Error()
+			}
+		}
 		a.store.SaveRepo(r)
 		a.note(id, "%s: %s", r.RepoPath, r.Result)
 	}
 	return nil
+}
+
+// mergeLocal merges the card branch into the base branch in the original checkout, only when
+// that checkout is on the base branch and has no uncommitted changes to tracked files. It never
+// pushes. It sets r.Result and reports whether the merge happened; if not, the branch is kept
+// (a conflict is aborted and also noted on the card). The caller deletes a merged branch.
+func (a *App) mergeLocal(ctx context.Context, card *model.Card, r *model.CardRepo, orig string) bool {
+	base := strings.TrimPrefix(r.BaseRef, "origin/")
+	keep := func(reason string) bool {
+		r.Result = fmt.Sprintf("kept local on %s: not merged, %s", r.Branch, reason)
+		return false
+	}
+	cur, err := a.git.CurrentBranch(ctx, orig)
+	if err != nil {
+		return keep(err.Error())
+	}
+	if cur != base {
+		if cur == "" {
+			cur = "a detached HEAD"
+		}
+		return keep(fmt.Sprintf("the checkout is on %s, not %s", cur, base))
+	}
+	clean, err := a.git.TrackedClean(ctx, orig)
+	if err != nil {
+		return keep(err.Error())
+	}
+	if !clean {
+		return keep("the checkout has uncommitted changes")
+	}
+	if err := a.git.Merge(ctx, orig, r.Branch, fmt.Sprintf("maestrello: merge #%d %s", card.ID, card.Title)); err != nil {
+		if errors.Is(err, gitops.ErrMergeConflict) {
+			a.note(card.ID, "%s: merging %s into %s conflicted and was aborted: %v", r.RepoPath, r.Branch, base, err)
+			return keep("merge conflict, aborted: " + err.Error())
+		}
+		return keep(err.Error())
+	}
+	r.Result = "merged into " + base
+	return true
 }
 
 // Discard throws away all of the card's worktrees and branches and closes the card.

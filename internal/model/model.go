@@ -62,7 +62,7 @@ type Project struct {
 	Settings LayerSettings `json:"settings"`
 }
 
-var ValidPush = map[string]bool{"": true, "local": true, "push": true, "pr": true}
+var ValidPush = map[string]bool{"": true, "local": true, "merge": true, "push": true, "pr": true}
 
 // Card statuses, in board order.
 const (

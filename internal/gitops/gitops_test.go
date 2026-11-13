@@ -2,6 +2,7 @@ package gitops
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -136,5 +137,49 @@ func TestGitRefusesPathsOutsideSandbox(t *testing.T) {
 	g := &Git{guard: guard}
 	if _, err := g.Status(context.Background(), dir); err == nil {
 		t.Error("git ran outside the sandbox")
+	}
+}
+
+func TestMergeHelpers(t *testing.T) {
+	dir := testenv.Dir(t)
+	testenv.IsolateGit(t, dir)
+	repo := testenv.MakeRepo(t, dir, "svc")
+	guard, _ := sandbox.NewGuard(dir)
+	g := &Git{guard: guard}
+	ctx := context.Background()
+
+	if b, err := g.CurrentBranch(ctx, repo); err != nil || b != "main" {
+		t.Fatalf("CurrentBranch = %q, %v", b, err)
+	}
+	if ok, err := g.TrackedClean(ctx, repo); err != nil || !ok {
+		t.Fatalf("TrackedClean = %v, %v", ok, err)
+	}
+	os.WriteFile(filepath.Join(repo, "untracked.txt"), nil, 0o644)
+	if ok, _ := g.TrackedClean(ctx, repo); !ok {
+		t.Error("an untracked file made the checkout dirty")
+	}
+	os.WriteFile(filepath.Join(repo, "README.md"), []byte("edit\n"), 0o644)
+	if ok, _ := g.TrackedClean(ctx, repo); ok {
+		t.Error("a modified tracked file left the checkout clean")
+	}
+	testenv.Git(t, repo, "checkout", "-q", "README.md")
+
+	// Conflicting branches: the merge aborts and leaves everything as it was.
+	testenv.Git(t, repo, "checkout", "-q", "-b", "side")
+	os.WriteFile(filepath.Join(repo, "README.md"), []byte("side\n"), 0o644)
+	testenv.Git(t, repo, "commit", "-qam", "side")
+	testenv.Git(t, repo, "checkout", "-q", "main")
+	os.WriteFile(filepath.Join(repo, "README.md"), []byte("main\n"), 0o644)
+	testenv.Git(t, repo, "commit", "-qam", "main")
+	head := testenv.Git(t, repo, "rev-parse", "HEAD")
+	err := g.Merge(ctx, repo, "side", "merge side")
+	if !errors.Is(err, ErrMergeConflict) || !strings.Contains(err.Error(), "README.md") {
+		t.Fatalf("Merge = %v, want a conflict in README.md", err)
+	}
+	if testenv.Git(t, repo, "rev-parse", "HEAD") != head {
+		t.Error("HEAD moved")
+	}
+	if ok, _ := g.TrackedClean(ctx, repo); !ok {
+		t.Error("conflicted merge left changes behind")
 	}
 }
