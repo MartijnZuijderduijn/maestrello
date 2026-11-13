@@ -76,20 +76,20 @@ func TestHarnessesEndpointAvailability(t *testing.T) {
 	app := newTestApp(t, dir)
 	var got []harnessInfo
 	sendJSON(t, "GET", app.baseURL+"/api/harnesses", nil, &got)
-	if len(got) != 3 {
+	if len(got) != 4 {
 		t.Fatalf("harnesses = %+v", got)
 	}
 	if !got[0].Available || got[0].Version == "" || !slices.Equal(got[0].Models, knownModels) {
 		t.Errorf("claude = %+v", got[0])
 	}
-	if !got[2].Available || got[2].Version != "1.2.10-fake" || !slices.Contains(got[2].Models, "opencode/fake-free") {
-		t.Errorf("opencode = %+v", got[2])
+	if !got[3].Available || got[3].Version != "1.2.10-fake" || !slices.Contains(got[3].Models, "opencode/fake-free") {
+		t.Errorf("opencode = %+v", got[3])
 	}
 	// Point opencode at nothing: cached until ?refresh=1 (the changed path triggers a re-check anyway).
 	app.opencodeBin = filepath.Join(dir, "gone")
 	sendJSON(t, "GET", app.baseURL+"/api/harnesses?refresh=1", nil, &got)
-	if got[2].Available || got[2].Error == "" || len(got[2].Models) != 0 || got[2].Models == nil {
-		t.Errorf("unavailable opencode = %+v", got[2])
+	if got[3].Available || got[3].Error == "" || len(got[3].Models) != 0 || got[3].Models == nil {
+		t.Errorf("unavailable opencode = %+v", got[3])
 	}
 	if !got[0].Available {
 		t.Errorf("claude lost: %+v", got[0])

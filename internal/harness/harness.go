@@ -150,6 +150,7 @@ var (
 		"claude":   func(cfg HarnessConfig) Harness { return claudeHarness{bin: cfg.Bin} },
 		"opencode": func(cfg HarnessConfig) Harness { return newOpencodeHarness(cfg.Bin) },
 		"mistral":  func(cfg HarnessConfig) Harness { return newMistralHarness(cfg.Bin) },
+		"omp":      func(cfg HarnessConfig) Harness { return newOmpHarness(cfg.Bin) },
 	}
 )
 

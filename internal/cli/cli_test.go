@@ -22,7 +22,7 @@ func runningBoard(t *testing.T, dir string) (addr, dataDir string) {
 	done := make(chan error, 1)
 	go func() {
 		done <- board.Serve(board.Options{Addr: "127.0.0.1:0", DataDir: dataDir, SandboxRoot: dir,
-			ClaudeBin: testenv.FakeClaude(), OpencodeBin: testenv.FakeOpencode(), MistralBin: testenv.FakeMistral()}, func(url string) { ready <- url })
+			ClaudeBin: testenv.FakeClaude(), OpencodeBin: testenv.FakeOpencode(), MistralBin: testenv.FakeMistral(), OmpBin: testenv.FakeOmp()}, func(url string) { ready <- url })
 	}()
 	select {
 	case url := <-ready:
@@ -94,6 +94,18 @@ func TestParseStartMistralFlag(t *testing.T) {
 	}
 	o, err = parseStart([]string{"-mistral", "testdata/fake-mistral.sh"}, io.Discard)
 	if err != nil || !filepath.IsAbs(o.mistralBin) || !strings.HasSuffix(o.mistralBin, "testdata/fake-mistral.sh") {
+		t.Errorf("relative path not made absolute: %+v, %v", o, err)
+	}
+}
+
+func TestParseStartOmpFlag(t *testing.T) {
+	t.Chdir(testenv.Root())
+	o, err := parseStart(nil, io.Discard)
+	if err != nil || o.ompBin != "omp" {
+		t.Fatalf("defaults: %+v, %v", o, err)
+	}
+	o, err = parseStart([]string{"-omp", "testdata/fake-omp.sh"}, io.Discard)
+	if err != nil || !filepath.IsAbs(o.ompBin) || !strings.HasSuffix(o.ompBin, "testdata/fake-omp.sh") {
 		t.Errorf("relative path not made absolute: %+v, %v", o, err)
 	}
 }
