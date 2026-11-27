@@ -1,6 +1,7 @@
 package board
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -218,4 +219,21 @@ func (a *App) Workspace(projectID int64, includeDone bool) (*WorkspaceView, erro
 		entries = []*WorkspaceEntry{}
 	}
 	return &WorkspaceView{ProjectID: p.ID, RootFolder: p.RootFolder, Entries: entries}, nil
+}
+
+// handleWorkspace serves GET /api/projects/{id}/workspace; ?done=1 includes done
+// cards. Later optional params (?git=1, ?discovered=1) will be read here too.
+func (a *App) handleWorkspace(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	done := r.URL.Query().Get("done")
+	view, err := a.Workspace(id, done != "" && done != "0")
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
 }

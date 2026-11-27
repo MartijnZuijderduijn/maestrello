@@ -62,6 +62,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /api/projects", a.handleCreateProject)
 	mux.HandleFunc("PATCH /api/projects/{id}", a.handlePatchProject)
 	mux.HandleFunc("DELETE /api/projects/{id}", a.handleDeleteProject)
+	mux.HandleFunc("GET /api/projects/{id}/workspace", a.handleWorkspace)
 
 	mux.HandleFunc("GET /api/cards", a.handleListCards)
 	mux.HandleFunc("POST /api/cards", a.handleCreateCard)
