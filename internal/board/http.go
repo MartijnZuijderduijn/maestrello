@@ -233,7 +233,11 @@ func (a *App) handleListCards(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	cards, err := a.store.ListCards()
+	list := a.store.ListCards
+	if r.URL.Query().Get("archived") == "1" {
+		list = a.store.ListArchivedCards // the trash
+	}
+	cards, err := list()
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -493,6 +497,10 @@ func (a *App) handleAction(w http.ResponseWriter, r *http.Request) {
 		}
 	case "discard":
 		err = a.Discard(id)
+	case "archive":
+		err = a.archiveCard(id, body.Stop)
+	case "unarchive":
+		err = a.unarchiveCard(id)
 	case "move":
 		if body.Stop {
 			err = a.MoveStopping(id, body.Status)

@@ -82,6 +82,10 @@ export async function deleteCard() {
   if (!confirm("Delete this card?")) return;
   try { await api("DELETE", `/api/cards/${detail.card.id}`); closeDrawer(); } catch (e) { alert(e.message); }
 }
+export async function archiveCard() {
+  if (!confirm("Archive this card? It moves to the trash and can be restored.")) return;
+  try { await api("POST", `/api/cards/${detail.card.id}/archive`, { stop: true }); closeDrawer(); } catch (e) { alert(e.message); }
+}
 export function answer(inputId, allow = false, text) {
   act(detail.card.id, "answer", { input_id: inputId, allow, text: text ?? ($("#f-answer")?.value || "") });
 }

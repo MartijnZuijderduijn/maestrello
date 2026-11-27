@@ -1,5 +1,6 @@
 import { renderBoard } from "./board.js";
 import { morphInto } from "./morph.js";
+import { showTrash } from "./trash.js";
 import { showWorkspace } from "./workspace.js";
 import { $, esc, lsGet, lsSet } from "./util.js";
 import { buildHash, DEFAULT_PAGE, parseHash } from "./route.js";
@@ -11,6 +12,7 @@ const svg = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" 
 export const pages = [
   { id: "board", label: "Board", el: "#board", icon: svg('<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/>'), render: renderBoard },
   { id: "workspace", label: "Workspace", el: "#page-workspace", icon: svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'), render: showWorkspace },
+  { id: "trash", label: "Trash", el: "#page-trash", icon: svg('<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/>'), render: showTrash },
 ];
 const LS_NAV = "maestrello.nav";           // "1" collapsed, "0" expanded
 const narrow = matchMedia("(max-width: 700px)");

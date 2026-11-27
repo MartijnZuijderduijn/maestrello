@@ -436,22 +436,61 @@ func (a *App) deleteCard(id int64, onlyDone, stop bool) error {
 	if onlyDone && c.Status != model.StatusDone {
 		return errNotDone
 	}
-	if c.Status != model.StatusDone {
-		if c.Status == model.StatusRefining {
-			return errors.New("the card is being refined; wait for it to finish")
-		}
-		if stop {
-			err = a.MoveStopping(id, model.StatusDone)
-		} else {
-			err = a.Move(id, model.StatusDone) // refused while an agent is live
-		}
-		if err != nil {
-			return err
-		}
+	if err := a.settleDone(c, stop); err != nil {
+		return err
 	}
 	if err := a.store.DeleteCard(id); err != nil {
 		return err
 	}
 	a.hub.Publish("deleted", map[string]int64{"id": id})
 	return nil
+}
+
+// settleDone moves a card that leaves the board (deleted or archived) to Done, which keeps its work
+// as local branches and removes its worktrees and leases. See deleteCard for the stop rules.
+func (a *App) settleDone(c *model.Card, stop bool) error {
+	if c.Status == model.StatusDone {
+		return nil
+	}
+	if c.Status == model.StatusRefining {
+		return errors.New("the card is being refined; wait for it to finish")
+	}
+	if stop {
+		return a.MoveStopping(c.ID, model.StatusDone)
+	}
+	return a.Move(c.ID, model.StatusDone) // refused while an agent is live
+}
+
+// archiveCard hides a card from the board without destroying it: like deleteCard it first moves the
+// card to Done (same stop rules), then flags it. Open boards see a "deleted" event; unarchiveCard
+// brings it back with a "card" event, in Done.
+func (a *App) archiveCard(id int64, stop bool) error {
+	c, err := a.store.GetCard(id)
+	if err != nil {
+		return err
+	}
+	if c.Archived {
+		return nil
+	}
+	if err := a.settleDone(c, stop); err != nil {
+		return err
+	}
+	if _, err := a.update(id, func(c *model.Card) { c.Archived = true }); err != nil {
+		return err
+	}
+	a.hub.Publish("deleted", map[string]int64{"id": id})
+	return nil
+}
+
+// unarchiveCard restores an archived card to the board (in Done, where archiving left it).
+func (a *App) unarchiveCard(id int64) error {
+	c, err := a.store.GetCard(id)
+	if err != nil {
+		return err
+	}
+	if !c.Archived {
+		return nil
+	}
+	_, err = a.update(id, func(c *model.Card) { c.Archived = false })
+	return err
 }

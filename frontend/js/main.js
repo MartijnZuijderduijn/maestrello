@@ -1,19 +1,20 @@
 import { loadAcct, refreshAcct, toggleAcct } from "./account.js";
 import { act, api, connect, loadCards } from "./api.js";
-import { blockDrag, cardClick, cardKey, clearDone, deleteDoneCard, dragEnd, dragLeave, dragOver, dragStart, dropCard, refineAllTodo, showBoardError, showBoardSkeleton, startAllReady } from "./board.js";
+import { blockDrag, cardClick, cardKey, clearDone, deleteDoneCard, archiveBoardCard, dragEnd, dragLeave, dragOver, dragStart, dropCard, refineAllTodo, showBoardError, showBoardSkeleton, startAllReady } from "./board.js";
 import { openCard } from "./card.js";
 import { closeDrawer } from "./drawer.js";
 import { addContextPick, addContextTyped, createCard, kindChanged, newPromptKey, openNew, projectChanged, removeContext, setToolbox, skipChanged } from "./forms.js";
 import { autoModelChanged, harnessChanged, recheckHarnesses, setHarnesses, setModels } from "./harness.js";
 import { createProject, loadSel, openEditProject, openNewProject, saveProject, setSel, toggleLane, toggleProj, toggleProject } from "./projects.js";
-import { answer, approve, chatKey, mergeChoiceChanged, deleteCard, discard, planSelection, replyChat, saveAgent, saveCard, saveReady, sendBack } from "./review.js";
+import { deleteTrashCard, restoreCard } from "./trash.js";
+import { archiveCard, answer, approve, chatKey, mergeChoiceChanged, deleteCard, discard, planSelection, replyChat, saveAgent, saveCard, saveReady, sendBack } from "./review.js";
 import { browsePath, pickPath } from "./picker.js";
 import { openSettings, projectSettingsChanged, saveProjectSettings, saveSettings, settingsRunFlagsChanged } from "./settings.js";
 import { $ } from "./util.js";
 import { initPages, setPage, toggleNav } from "./pages.js";
 
 // The markup uses inline on*= handlers, which look their functions up on window.
-Object.assign(window, { mergeChoiceChanged, settingsRunFlagsChanged, refineAllTodo, autoModelChanged, act, addContextPick, addContextTyped, removeContext, answer, approve, blockDrag, browsePath, cardClick, cardKey, chatKey, clearDone, closeDrawer, createCard, createProject, deleteCard, deleteDoneCard, discard, dragEnd, dragLeave, dragOver, dragStart, dropCard, harnessChanged, kindChanged, newPromptKey, openCard, openNew, openNewProject, openEditProject, saveProject, openSettings, pickPath, planSelection, projectChanged, projectSettingsChanged, saveProjectSettings, recheckHarnesses, refreshAcct, replyChat, saveAgent, saveCard, saveReady, saveSettings, sendBack, setSel, skipChanged, startAllReady, toggleAcct, toggleLane, toggleProj, toggleProject, setPage, toggleNav });
+Object.assign(window, { archiveBoardCard, archiveCard, restoreCard, deleteTrashCard, mergeChoiceChanged, settingsRunFlagsChanged, refineAllTodo, autoModelChanged, act, addContextPick, addContextTyped, removeContext, answer, approve, blockDrag, browsePath, cardClick, cardKey, chatKey, clearDone, closeDrawer, createCard, createProject, deleteCard, deleteDoneCard, discard, dragEnd, dragLeave, dragOver, dragStart, dropCard, harnessChanged, kindChanged, newPromptKey, openCard, openNew, openNewProject, openEditProject, saveProject, openSettings, pickPath, planSelection, projectChanged, projectSettingsChanged, saveProjectSettings, recheckHarnesses, refreshAcct, replyChat, saveAgent, saveCard, saveReady, saveSettings, sendBack, setSel, skipChanged, startAllReady, toggleAcct, toggleLane, toggleProj, toggleProject, setPage, toggleNav });
 
 showBoardSkeleton();
 (async () => {

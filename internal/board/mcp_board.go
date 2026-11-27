@@ -57,7 +57,8 @@ var boardTools = []map[string]any{
 	tool("list_projects", "List the projects (boards) in id order, each with its root folder and the number of cards per status."),
 	tool("list_cards", "List the cards on the board in board order (id ascending), as a compact view without the refined prompt.",
 		optProp("project", "integer", "Only this project's cards (project id)"),
-		optProp("status", "string", "Only this column: todo, refining, ready, running, needs_input, review, failed or done")),
+		optProp("status", "string", "Only this column: todo, refining, ready, running, needs_input, review, failed or done"),
+		optProp("archived", "boolean", "true lists only the archived cards (the trash); by default archived cards are left out")),
 	tool("get_card", "Read one card in full: the card, its repos, open and answered inputs, whether an agent is live, and its last events.",
 		prop("id", "integer", "Card id")),
 	tool("create_card", "Create a card. The title is optional: give a description and the title is derived from it. Fields left out take the board's defaults. Normally it lands in Todo and the board refines it into a prompt, which costs tokens. "+
@@ -96,6 +97,10 @@ var boardTools = []map[string]any{
 				"description": "Plan cards: indices (from 0, into plan_tasks) of the tasks to create as cards; left out creates all of them, an empty list none"}})...),
 	tool("discard_card", "Discard a card: removes its worktrees and branches and moves it to done. The work is lost, so only after the user confirmed.",
 		withID()...),
+	tool("archive_card", "Archive a card instead of deleting it: like deleting it leaves the board, but the card is kept and can be restored with unarchive_card. "+
+		"The card is first moved to done (work kept on local branches); a live agent is refused unless stop is true, which halts it (only after the user confirmed). get_card still reads archived cards.",
+		withID(optProp("stop", "boolean", "Halt a live agent first. Only after the user confirmed"))...),
+	tool("unarchive_card", "Restore an archived card to the board, in done.", withID()...),
 	tool("send_back_card", "Send a card in review or failed back to work with feedback; the same agent session resumes.",
 		withID(prop("text", "string", "Feedback for the agent"))...),
 }
@@ -134,15 +139,16 @@ func toolJSON(v any) (string, bool) {
 
 type boardArgs struct {
 	cardInput
-	ID      int64             `json:"id"`
-	IDs     []int64           `json:"ids"`
-	Status  string            `json:"status"`
-	Project int64             `json:"project"` // list_cards filter
-	Stop    bool              `json:"stop"`
-	InputID int64             `json:"input_id"`
-	Text    string            `json:"text"`
-	Allow   bool              `json:"allow"`
-	Actions map[string]string `json:"actions"`
+	ID       int64             `json:"id"`
+	IDs      []int64           `json:"ids"`
+	Status   string            `json:"status"`
+	Project  int64             `json:"project"`  // list_cards filter
+	Archived bool              `json:"archived"` // list_cards: only the archived cards
+	Stop     bool              `json:"stop"`
+	InputID  int64             `json:"input_id"`
+	Text     string            `json:"text"`
+	Allow    bool              `json:"allow"`
+	Actions  map[string]string `json:"actions"`
 	// approve_card: repo id → merge_dirty strategy for this approval
 	MergeDirty map[string]string `json:"merge_dirty"`
 	Tasks      []int             `json:"tasks"` // approve_card: plan tasks to create; absent means all
@@ -160,6 +166,7 @@ type cardSummary struct {
 	Model      string `json:"model"`
 	AutoRun    bool   `json:"auto_run"`
 	WaitingOn  int64  `json:"waiting_on,omitempty"`
+	Archived   bool   `json:"archived,omitempty"`
 }
 
 func (a *App) callBoardTool(name string, raw json.RawMessage) (string, bool) {
@@ -200,14 +207,18 @@ func (a *App) callBoardTool(name string, raw json.RawMessage) (string, bool) {
 		if args.Status != "" && !model.Statuses[args.Status] {
 			return fmt.Sprintf("unknown column %q", args.Status), true
 		}
-		cards, err := a.store.ListCards()
+		list := a.store.ListCards
+		if args.Archived {
+			list = a.store.ListArchivedCards
+		}
+		cards, err := list()
 		if err != nil {
 			return err.Error(), true
 		}
 		out := []cardSummary{}
 		for _, c := range cardsInProject(cards, args.Project) {
 			if args.Status == "" || c.Status == args.Status {
-				out = append(out, cardSummary{c.ID, c.Title, c.Status, c.ProjectID, c.Activity, c.RootFolder, c.Harness, c.EffectiveKind(), c.Model, c.AutoRun, c.WaitingOn})
+				out = append(out, cardSummary{c.ID, c.Title, c.Status, c.ProjectID, c.Activity, c.RootFolder, c.Harness, c.EffectiveKind(), c.Model, c.AutoRun, c.WaitingOn, c.Archived})
 			}
 		}
 		return toolJSON(out)
@@ -314,6 +325,26 @@ func (a *App) callBoardTool(name string, raw json.RawMessage) (string, bool) {
 		err := a.Discard(id)
 		if err == nil {
 			a.note(id, "discarded by %s", viaMCP)
+		}
+		return card(err)
+
+	case "archive_card":
+		if err := needID(); err != nil {
+			return err.Error(), true
+		}
+		err := a.archiveCard(id, args.Stop)
+		if err == nil {
+			a.note(id, "archived by %s", viaMCP)
+		}
+		return card(err)
+
+	case "unarchive_card":
+		if err := needID(); err != nil {
+			return err.Error(), true
+		}
+		err := a.unarchiveCard(id)
+		if err == nil {
+			a.note(id, "restored from the archive by %s", viaMCP)
 		}
 		return card(err)
 
