@@ -108,6 +108,7 @@ func OpenStore(path string) (*Store, error) {
 	db.Exec(`ALTER TABLE card_repos ADD COLUMN local_since TEXT NOT NULL DEFAULT ''`)
 	db.Exec(`ALTER TABLE card_repos ADD COLUMN error TEXT NOT NULL DEFAULT ''`)
 	db.Exec(`ALTER TABLE card_repos ADD COLUMN pushed INTEGER NOT NULL DEFAULT 0`)
+	db.Exec(`ALTER TABLE card_repos ADD COLUMN merge_pending INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE cards ADD COLUMN waiting_on INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE cards ADD COLUMN auto_run INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE cards ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude'`)
@@ -281,7 +282,7 @@ func (s *Store) DeleteCard(id int64) error {
 	return nil
 }
 
-const repoCols = `id, card_id, repo_path, worktree_path, branch, base_ref, orig_status, result, pr_url, local_since, error, pushed`
+const repoCols = `id, card_id, repo_path, worktree_path, branch, base_ref, orig_status, result, pr_url, local_since, error, pushed, merge_pending`
 
 func (s *Store) Repos(cardID int64) ([]*model.CardRepo, error) {
 	rows, err := s.db.Query(`SELECT `+repoCols+` FROM card_repos WHERE card_id=? ORDER BY repo_path`, cardID)
@@ -292,12 +293,36 @@ func (s *Store) Repos(cardID int64) ([]*model.CardRepo, error) {
 	repos := []*model.CardRepo{}
 	for rows.Next() {
 		var r model.CardRepo
-		if err := rows.Scan(&r.ID, &r.CardID, &r.RepoPath, &r.WorktreePath, &r.Branch, &r.BaseRef, &r.OrigStatus, &r.Result, &r.PRURL, &r.LocalSince, &r.Error, &r.Pushed); err != nil {
+		if err := rows.Scan(&r.ID, &r.CardID, &r.RepoPath, &r.WorktreePath, &r.Branch, &r.BaseRef, &r.OrigStatus, &r.Result, &r.PRURL, &r.LocalSince, &r.Error, &r.Pushed, &r.MergePending); err != nil {
 			return nil, err
 		}
 		repos = append(repos, &r)
 	}
 	return repos, rows.Err()
+}
+
+// PendingMerges lists the open repos whose merge waits for a clean checkout.
+func (s *Store) PendingMerges() ([]*model.CardRepo, error) {
+	rows, err := s.db.Query(`SELECT ` + repoCols + ` FROM card_repos WHERE merge_pending=1 AND result='' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var repos []*model.CardRepo
+	for rows.Next() {
+		var r model.CardRepo
+		if err := rows.Scan(&r.ID, &r.CardID, &r.RepoPath, &r.WorktreePath, &r.Branch, &r.BaseRef, &r.OrigStatus, &r.Result, &r.PRURL, &r.LocalSince, &r.Error, &r.Pushed, &r.MergePending); err != nil {
+			return nil, err
+		}
+		repos = append(repos, &r)
+	}
+	return repos, rows.Err()
+}
+
+// ClearMergePending drops the queued merges of a card.
+func (s *Store) ClearMergePending(cardID int64) error {
+	_, err := s.db.Exec(`UPDATE card_repos SET merge_pending=0 WHERE card_id=?`, cardID)
+	return err
 }
 
 // SetPlannedRepos replaces the card's repo list. Only valid before any worktree exists.
@@ -331,8 +356,8 @@ func (s *Store) AddRepo(r *model.CardRepo) error {
 }
 
 func (s *Store) SaveRepo(r *model.CardRepo) error {
-	_, err := s.db.Exec(`UPDATE card_repos SET worktree_path=?, branch=?, base_ref=?, orig_status=?, result=?, pr_url=?, local_since=?, error=?, pushed=? WHERE id=?`,
-		r.WorktreePath, r.Branch, r.BaseRef, r.OrigStatus, r.Result, r.PRURL, r.LocalSince, r.Error, r.Pushed, r.ID)
+	_, err := s.db.Exec(`UPDATE card_repos SET worktree_path=?, branch=?, base_ref=?, orig_status=?, result=?, pr_url=?, local_since=?, error=?, pushed=?, merge_pending=? WHERE id=?`,
+		r.WorktreePath, r.Branch, r.BaseRef, r.OrigStatus, r.Result, r.PRURL, r.LocalSince, r.Error, r.Pushed, r.MergePending, r.ID)
 	return err
 }
 

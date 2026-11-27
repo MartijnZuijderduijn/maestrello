@@ -140,7 +140,7 @@ func TestResolvedSettingsEndpoint(t *testing.T) {
 	dir := testenv.Dir(t)
 	app := newTestApp(t, dir)
 	p := mkProject(t, app, "A", filepath.Join(dir, "a"))
-	app.SetProjectSettings(p.ID, model.LayerSettings{Kinds: map[string]model.Overrides{model.KindPlan: {Model: sp("opus")}}})
+	app.SetProjectSettings(p.ID, model.LayerSettings{Kinds: map[string]model.Overrides{model.KindPlan: {Model: sp("opus"), MergeDirty: sp(model.MergeQueue)}}})
 	var out struct {
 		Settings model.Settings    `json:"settings"`
 		Sources  map[string]string `json:"sources"`
@@ -148,6 +148,12 @@ func TestResolvedSettingsEndpoint(t *testing.T) {
 	if code := sendJSON(t, "GET", app.baseURL+"/api/settings/resolved?project="+itoa(p.ID)+"&kind=plan", nil, &out); code != 200 ||
 		out.Settings.DefaultModel != "opus" || out.Sources["model"] != settings.LayerProjectKind {
 		t.Errorf("resolved = %d %+v %v", code, out.Settings.DefaultModel, out.Sources)
+	}
+	if out.Settings.MergeDirty != model.MergeQueue || out.Sources["merge_dirty"] != settings.LayerProjectKind {
+		t.Errorf("merge_dirty = %q from %q", out.Settings.MergeDirty, out.Sources["merge_dirty"])
+	}
+	if code := sendJSON(t, "GET", app.baseURL+"/api/settings/resolved", nil, &out); code != 200 || out.Settings.MergeDirty != model.MergeWorktree {
+		t.Errorf("default merge_dirty = %q (%d)", out.Settings.MergeDirty, code)
 	}
 	var e map[string]string
 	if code := sendJSON(t, "GET", app.baseURL+"/api/settings/resolved?kind=bogus", nil, &e); code != 400 {

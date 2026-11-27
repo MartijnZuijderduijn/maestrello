@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"maestrello/internal/gitops"
 	"maestrello/internal/model"
+	"maestrello/internal/settings"
 )
 
 type RepoDiff struct {
@@ -19,6 +21,10 @@ type RepoDiff struct {
 	Log   string          `json:"log"`
 	Diff  string          `json:"diff"`
 	Error string          `json:"error,omitempty"`
+	// What the approve dialog needs for a git repo: whether the original checkout has uncommitted
+	// changes to tracked files, the merge_dirty strategy resolved for the card.
+	Dirty      bool   `json:"checkout_dirty,omitempty"`
+	MergeDirty string `json:"merge_dirty,omitempty"`
 }
 
 func (a *App) Diffs(id int64) ([]RepoDiff, error) {
@@ -28,6 +34,11 @@ func (a *App) Diffs(id int64) ([]RepoDiff, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+	card, err := a.store.GetCard(id)
+	if err != nil {
+		return nil, err
+	}
+	def := a.mergeDirtyDefault(card)
 	out := []RepoDiff{}
 	for _, r := range repos {
 		if r.WorktreePath == "" || r.Result != "" {
@@ -41,6 +52,10 @@ func (a *App) Diffs(id int64) ([]RepoDiff, error) {
 			}
 			out = append(out, d)
 			continue
+		}
+		d.MergeDirty = def
+		if clean, cerr := a.git.TrackedClean(ctx, filepath.Join(card.RootFolder, r.RepoPath)); cerr == nil {
+			d.Dirty = !clean
 		}
 		d.Log, d.Diff, err = a.git.Diff(ctx, r.WorktreePath, r.BaseRef)
 		if err != nil {
@@ -60,6 +75,8 @@ type RepoOutcome struct {
 	Result string `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
 	PRURL  string `json:"pr_url,omitempty"`
+	// Pending: the queue strategy is waiting for a clean checkout. Not a failure; the card stays in Review.
+	Pending bool `json:"merge_pending,omitempty"`
 }
 
 // ApproveError reports an approval that left the card in Review because repo actions failed.
@@ -68,7 +85,7 @@ type ApproveError struct{ Repos []RepoOutcome }
 func (e *ApproveError) Error() string {
 	var failed []string
 	for _, o := range e.Repos {
-		if !o.OK {
+		if !o.OK && !o.Pending {
 			failed = append(failed, o.Path+": "+o.Error)
 		}
 	}
@@ -87,7 +104,7 @@ func (a *App) Approve(id int64, actions map[int64]string) error {
 // the proposed tasks to create as Todo cards. nil means all of them, an empty list none.
 // Cards of other kinds have no tasks, so for them a selection is an error.
 func (a *App) ApproveSelected(id int64, actions map[int64]string, tasks []int) error {
-	_, _, err := a.approveSelected(id, actions, tasks)
+	_, _, err := a.approveSelected(id, actions, nil, tasks)
 	return err
 }
 
@@ -95,13 +112,13 @@ func (a *App) ApproveSelected(id int64, actions map[int64]string, tasks []int) e
 // Approval errors stop before any refinement; refinement errors are returned after all cards
 // were tried (the plan itself is already approved by then).
 func (a *App) ApproveAndRefine(id int64, actions map[int64]string, tasks []int) error {
-	_, err := a.approveAndRefine(id, actions, tasks, true)
+	_, err := a.approveAndRefine(id, actions, nil, tasks, true)
 	return err
 }
 
 // approveAndRefine also returns the per-repo outcomes (nil when approval stopped before the repos).
-func (a *App) approveAndRefine(id int64, actions map[int64]string, tasks []int, refine bool) ([]RepoOutcome, error) {
-	made, outcomes, err := a.approveSelected(id, actions, tasks)
+func (a *App) approveAndRefine(id int64, actions, strategies map[int64]string, tasks []int, refine bool) ([]RepoOutcome, error) {
+	made, outcomes, err := a.approveSelected(id, actions, strategies, tasks)
 	if err != nil || !refine {
 		return outcomes, err
 	}
@@ -119,7 +136,8 @@ func (a *App) approveAndRefine(id int64, actions map[int64]string, tasks []int, 
 
 var repoActions = map[string]bool{"local": true, "merge": true, "push": true, "pr": true, "create_pr": true}
 
-func (a *App) approveSelected(id int64, actions map[int64]string, tasks []int) ([]*model.Card, []RepoOutcome, error) {
+// strategies overrides merge_dirty per repo id for this approval.
+func (a *App) approveSelected(id int64, actions, strategies map[int64]string, tasks []int) ([]*model.Card, []RepoOutcome, error) {
 	if a.liveRun(id) != nil {
 		return nil, nil, fmt.Errorf("the agent is still running")
 	}
@@ -138,8 +156,15 @@ func (a *App) approveSelected(id int64, actions map[int64]string, tasks []int) (
 			return nil, nil, fmt.Errorf("unknown action %q", act)
 		}
 	}
+	for _, m := range strategies {
+		if !model.ValidMergeDirty[m] {
+			return nil, nil, fmt.Errorf("unknown merge_dirty strategy %q (worktree, stash, queue or refuse)", m)
+		}
+	}
+	a.closeMu.Lock()
+	defer a.closeMu.Unlock()
 	// Repos first: a failed repo keeps the card in Review, and a retry must not create the plan's cards twice.
-	outcomes, err := a.closeRepos(card, actions)
+	outcomes, err := a.closeRepos(card, actions, strategies)
 	if err != nil {
 		return nil, outcomes, err
 	}
@@ -147,6 +172,12 @@ func (a *App) approveSelected(id int64, actions map[int64]string, tasks []int) (
 		a.note(id, "approval incomplete, %d repo(s) failed and keep their worktree and branch: %s", failed, (&ApproveError{outcomes}).Error())
 		a.update(id, func(c *model.Card) { c.Activity = fmt.Sprintf("approval incomplete: %d repo(s) failed", failed) })
 		return nil, outcomes, &ApproveError{outcomes}
+	}
+	if pending := pendingRepos(outcomes); pending > 0 { // not a failure: the board merges when the checkout is clean
+		a.update(id, func(c *model.Card) {
+			c.Activity = fmt.Sprintf("merge pending: %d repo(s) wait for a clean checkout", pending)
+		})
+		return nil, outcomes, nil
 	}
 	var made []*model.Card
 	if card.EffectiveKind() == model.KindPlan {
@@ -163,15 +194,29 @@ func (a *App) approveSelected(id int64, actions map[int64]string, tasks []int) (
 			a.note(id, "plan approved: no tasks selected, no cards created")
 		}
 	}
+	a.finishCard(id, "approved")
+	return made, outcomes, nil
+}
+
+// finishCard ends an approval whose repos are all closed.
+func (a *App) finishCard(id int64, activity string) {
 	a.cleanupWorkspace(id)
 	a.releaseLeases(id)
-	a.update(id, func(c *model.Card) { c.Status = model.StatusDone; c.Activity = "approved" })
-	return made, outcomes, nil
+	a.update(id, func(c *model.Card) { c.Status = model.StatusDone; c.Activity = activity })
 }
 
 func failedRepos(outcomes []RepoOutcome) (n int) {
 	for _, o := range outcomes {
-		if !o.OK {
+		if !o.OK && !o.Pending {
+			n++
+		}
+	}
+	return n
+}
+
+func pendingRepos(outcomes []RepoOutcome) (n int) {
+	for _, o := range outcomes {
+		if o.Pending {
 			n++
 		}
 	}
@@ -191,7 +236,7 @@ func cardRefs(cards []*model.Card) string {
 // push default, then local), and removes the worktrees of the repos that succeeded. A failed
 // repo keeps worktree and branch, with the reason in r.Error. Repos without changes are
 // dropped. It returns the outcome of every checked-out repo, earlier closes included.
-func (a *App) closeRepos(card *model.Card, actions map[int64]string) ([]RepoOutcome, error) {
+func (a *App) closeRepos(card *model.Card, actions, strategies map[int64]string) ([]RepoOutcome, error) {
 	repos, err := a.store.Repos(card.ID)
 	if err != nil {
 		return nil, err
@@ -199,31 +244,38 @@ func (a *App) closeRepos(card *model.Card, actions map[int64]string) ([]RepoOutc
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
+	def := a.mergeDirtyDefault(card)
 	var out []RepoOutcome
 	for _, r := range repos {
 		if r.WorktreePath == "" {
 			continue
 		}
 		if r.Result == "" {
-			a.closeRepo(ctx, card, r, actions[r.ID])
+			strategy := model.MergeStrategy(strategies[r.ID])
+			if strategies[r.ID] == "" {
+				strategy = def
+			}
+			a.closeRepo(ctx, card, r, actions[r.ID], strategy)
 			if err := a.store.SaveRepo(r); err != nil {
 				return out, err
 			}
 			if r.Error != "" {
 				a.note(card.ID, "%s: failed: %s", r.RepoPath, r.Error)
+			} else if r.MergePending {
+				a.note(card.ID, "%s: merge pending: the checkout has uncommitted changes; the board merges %s once it is clean", r.RepoPath, r.Branch)
 			} else {
 				a.note(card.ID, "%s: %s", r.RepoPath, r.Result)
 			}
 		}
-		out = append(out, RepoOutcome{RepoID: r.ID, Path: r.RepoPath, OK: r.Result != "", Result: r.Result, Error: r.Error, PRURL: r.PRURL})
+		out = append(out, RepoOutcome{RepoID: r.ID, Path: r.RepoPath, OK: r.Result != "", Result: r.Result, Error: r.Error, PRURL: r.PRURL, Pending: r.MergePending})
 	}
 	return out, nil
 }
 
 // closeRepo closes one open repo: on success r.Result is set and r.Error cleared; on failure
 // r.Error says why and the worktree, branch and result stay as they were.
-func (a *App) closeRepo(ctx context.Context, card *model.Card, r *model.CardRepo, action string) {
-	r.Error = ""
+func (a *App) closeRepo(ctx context.Context, card *model.Card, r *model.CardRepo, action, strategy string) {
+	r.Error, r.MergePending = "", false
 	if r.Local() {
 		r.Result = "kept in place (local work)"
 		return
@@ -260,7 +312,16 @@ func (a *App) closeRepo(ctx context.Context, card *model.Card, r *model.CardRepo
 	case "local":
 		r.Result = "kept local on " + r.Branch
 	case "merge":
-		if err := a.mergeLocal(ctx, card, r, orig); err != nil {
+		if err := a.mergeLocal(ctx, card, r, orig, strategy); err != nil {
+			if errors.Is(err, errMergePending) {
+				r.MergePending = true // open, with worktree and branch, until the retry merges it
+				return
+			}
+			var done *mergedError
+			if errors.As(err, &done) { // merged, but the checkout needs attention
+				fail("%v", err)
+				return
+			}
 			fail("merge not done, branch %s kept: %v", r.Branch, err)
 			return
 		}
@@ -345,7 +406,7 @@ func (a *App) reopenRepos(card *model.Card) error {
 			}
 			r.OrigStatus, _ = a.git.Status(ctx, orig)
 		}
-		r.Result, r.PRURL, r.Error, r.Pushed = "", "", "", false
+		r.Result, r.PRURL, r.Error, r.Pushed, r.MergePending = "", "", "", false, false
 		if err := a.store.SaveRepo(r); err != nil {
 			return err
 		}
@@ -369,38 +430,162 @@ func (a *App) reopenBase(ctx context.Context, orig string, r *model.CardRepo) er
 	return a.git.AddWorktree(ctx, orig, r.WorktreePath, r.Branch, r.BaseRef)
 }
 
-// mergeLocal merges the card branch into the base branch in the original checkout, only when
-// that checkout is on the base branch and has no uncommitted changes to tracked files. It never
-// pushes. It sets r.Result on success; otherwise it returns why nothing was merged and the
-// branch is kept (a conflict is aborted and also noted on the card). The caller deletes a merged branch.
-func (a *App) mergeLocal(ctx context.Context, card *model.Card, r *model.CardRepo, orig string) error {
+// mergeDirtyDefault is the merge_dirty strategy resolved for the card's project and kind.
+func (a *App) mergeDirtyDefault(card *model.Card) string {
+	st, _, err := settings.Resolve(a.store, card.ProjectID, card.EffectiveKind())
+	if err != nil {
+		return model.MergeWorktree
+	}
+	return model.MergeStrategy(st.MergeDirty)
+}
+
+// errMergePending is mergeLocal's answer for the queue strategy: nothing merged, retry later.
+var errMergePending = errors.New("merge pending")
+
+// mergeLocal merges the card branch into the base branch of the original checkout. A clean
+// checkout (no uncommitted changes to tracked files) on the base branch gets a plain merge. A dirty
+// one follows strategy (see model.MergeWorktree and friends); refuse and the other strategies that
+// need the base branch checked out also refuse when the checkout is elsewhere. It never pushes. It sets
+// r.Result on success; otherwise it returns why nothing was merged and the branch is kept (a conflict
+// is aborted and also noted on the card). The caller deletes a merged branch.
+func (a *App) mergeLocal(ctx context.Context, card *model.Card, r *model.CardRepo, orig, strategy string) error {
 	base := strings.TrimPrefix(r.BaseRef, "origin/") // the local branch of an origin base; a local base has no prefix
 	cur, err := a.git.CurrentBranch(ctx, orig)
 	if err != nil {
 		return err
 	}
-	if cur != base {
-		if cur == "" {
-			cur = "a detached HEAD"
-		}
-		return fmt.Errorf("the checkout is on %s, not %s", cur, base)
-	}
 	clean, err := a.git.TrackedClean(ctx, orig)
 	if err != nil {
 		return err
 	}
-	if !clean {
+	msg := fmt.Sprintf("maestrello: merge #%d %s", card.ID, card.Title)
+	switch {
+	case !clean && strategy == model.MergeWorktree: // works with any branch checked out
+		err = a.git.MergeNoCheckout(ctx, orig, base, r.Branch, msg)
+	case cur != base:
+		if cur == "" {
+			cur = "a detached HEAD"
+		}
+		return fmt.Errorf("the checkout is on %s, not %s", cur, base)
+	case clean:
+		err = a.git.Merge(ctx, orig, r.Branch, msg)
+	case strategy == model.MergeStash:
+		err = a.stashMerge(ctx, card, r, orig, msg)
+	case strategy == model.MergeQueue:
+		return errMergePending
+	default:
 		return errors.New("the checkout has uncommitted changes")
 	}
-	if err := a.git.Merge(ctx, orig, r.Branch, fmt.Sprintf("maestrello: merge #%d %s", card.ID, card.Title)); err != nil {
-		if errors.Is(err, gitops.ErrMergeConflict) {
+	if err != nil {
+		var overlap *gitops.DirtyOverlapError
+		switch {
+		case errors.Is(err, gitops.ErrMergeConflict):
 			a.note(card.ID, "%s: merging %s into %s conflicted and was aborted: %v", r.RepoPath, r.Branch, base, err)
 			return fmt.Errorf("merge conflict, aborted: %w", err)
+		case errors.As(err, &overlap):
+			return fmt.Errorf("%w; commit or stash them and retry, or choose another merge_dirty strategy", err)
 		}
 		return err
 	}
 	r.Result = "merged into " + base
 	return nil
+}
+
+// mergedError marks a failure after the merge itself happened.
+type mergedError struct{ error }
+
+func (e *mergedError) Unwrap() error { return e.error }
+
+// stashMerge stashes the uncommitted changes, merges and restores them. If the merge fails the
+// changes are restored and its error returned. If restoring conflicts after a merge, the stash stays
+// (never dropped) and the error names it; the checkout is left clean at the merged HEAD, so a retry
+// finds the branch merged.
+func (a *App) stashMerge(ctx context.Context, card *model.Card, r *model.CardRepo, orig, msg string) error {
+	sha, err := a.git.StashPush(ctx, orig, fmt.Sprintf("maestrello: before merging #%d", card.ID))
+	if err != nil {
+		return err
+	}
+	mergeErr := a.git.Merge(ctx, orig, r.Branch, msg)
+	if sha == "" {
+		return mergeErr
+	}
+	if err := a.git.StashRestore(ctx, orig, sha); err != nil {
+		ref := a.git.StashRef(ctx, orig, sha)
+		note := fmt.Sprintf("your uncommitted changes are kept in %s (commit %s): restore them with git stash apply %s", ref, sha, sha)
+		if mergeErr != nil {
+			return fmt.Errorf("%w; and restoring your changes failed (%v): %s", mergeErr, err, note)
+		}
+		return &mergedError{fmt.Errorf("the branch is merged, but restoring your uncommitted changes failed (%v); %s; approve again to finish", err, note)}
+	}
+	return mergeErr
+}
+
+// retryPendingMerges finishes the merges that the queue strategy deferred: a repo whose checkout
+// is clean again is merged like any approved merge, and its card is finished when no repo is left
+// open. Checks are cheap (git status) so it is fine to call often.
+func (a *App) retryPendingMerges() {
+	repos, err := a.store.PendingMerges()
+	if err != nil {
+		log.Printf("ERROR board: pending merges: %v", err)
+		return
+	}
+	for _, r := range repos {
+		a.retryPendingMerge(r)
+	}
+}
+
+func (a *App) retryPendingMerge(r *model.CardRepo) {
+	a.closeMu.Lock()
+	defer a.closeMu.Unlock()
+	card, err := a.store.GetCard(r.CardID)
+	if err != nil || card.Status != model.StatusReview || a.liveRun(card.ID) != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	orig := filepath.Join(card.RootFolder, r.RepoPath)
+	if clean, err := a.git.TrackedClean(ctx, orig); err != nil || !clean {
+		return
+	}
+	if cur, err := a.git.CurrentBranch(ctx, orig); err != nil || cur != strings.TrimPrefix(r.BaseRef, "origin/") {
+		return // wait until the checkout is back on the base branch
+	}
+	// Re-read: an approval may have closed or changed the repo since the list was taken.
+	repos, err := a.store.Repos(card.ID)
+	if err != nil {
+		return
+	}
+	for _, cur := range repos {
+		if cur.ID == r.ID {
+			r = cur
+		}
+	}
+	if !r.MergePending || r.Result != "" {
+		return
+	}
+	a.closeRepo(ctx, card, r, "merge", model.MergeQueue)
+	if r.MergePending { // dirty again, or on another branch
+		return
+	}
+	a.store.SaveRepo(r)
+	if r.Error != "" {
+		a.note(card.ID, "%s: pending merge failed: %s", r.RepoPath, r.Error)
+		a.update(card.ID, func(c *model.Card) { c.Activity = "approval incomplete: 1 repo(s) failed" })
+		return
+	}
+	a.note(card.ID, "%s: %s (pending merge)", r.RepoPath, r.Result)
+	if repos, err := a.store.Repos(card.ID); err == nil && !anyOpen(repos) {
+		a.finishCard(card.ID, "approved")
+	}
+}
+
+func anyOpen(repos []*model.CardRepo) bool {
+	for _, r := range repos {
+		if r.WorktreePath != "" && r.Result == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Discard throws away all of the card's worktrees and branches and closes the card.
@@ -439,7 +624,7 @@ func (a *App) Discard(id int64) error {
 		if err := a.git.DeleteBranch(ctx, orig, r.Branch); err != nil {
 			errs = append(errs, err.Error())
 		}
-		r.Result = "discarded"
+		r.Result, r.MergePending = "discarded", false
 		a.store.SaveRepo(r)
 	}
 	if len(errs) > 0 {

@@ -442,10 +442,12 @@ func (a *App) handleAction(w http.ResponseWriter, r *http.Request) {
 		InputID int64             `json:"input_id"`
 		Allow   bool              `json:"allow"`
 		Actions map[string]string `json:"actions"` // repo id → local|push|pr
-		Status  string            `json:"status"`  // target column for move
-		Stop    bool              `json:"stop"`    // move: halt a live session first (I confirmed)
-		Refine  bool              `json:"refine"`  // approve a plan: also refine the cards it created
-		Tasks   []int             `json:"tasks"`   // approve a plan: indices of the tasks to create; absent means all
+		// approve: repo id → merge_dirty strategy for this approval (worktree, stash, queue, refuse)
+		MergeDirty map[string]string `json:"merge_dirty"`
+		Status     string            `json:"status"` // target column for move
+		Stop       bool              `json:"stop"`   // move: halt a live session first (I confirmed)
+		Refine     bool              `json:"refine"` // approve a plan: also refine the cards it created
+		Tasks      []int             `json:"tasks"`  // approve a plan: indices of the tasks to create; absent means all
 	}
 	if r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -469,13 +471,17 @@ func (a *App) handleAction(w http.ResponseWriter, r *http.Request) {
 			err = a.SendBack(id, body.Text)
 		}
 	case "approve":
-		actions := map[int64]string{}
+		actions, strategies := map[int64]string{}, map[int64]string{}
 		for k, v := range body.Actions {
 			rid, _ := strconv.ParseInt(k, 10, 64)
 			actions[rid] = v
 		}
+		for k, v := range body.MergeDirty {
+			rid, _ := strconv.ParseInt(k, 10, 64)
+			strategies[rid] = v
+		}
 		var outcomes []RepoOutcome
-		if outcomes, err = a.approveAndRefine(id, actions, body.Tasks, body.Refine); err != nil {
+		if outcomes, err = a.approveAndRefine(id, actions, strategies, body.Tasks, body.Refine); err != nil {
 			var stuck *ApproveError
 			if errors.As(err, &stuck) { // the card stayed in Review: the client shows which repos failed
 				writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "error": err.Error(), "repos": outcomes})

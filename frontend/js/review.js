@@ -2,7 +2,7 @@ import { act, api } from "./api.js";
 import { loadDetail } from "./card.js";
 import { closeDrawer, sec } from "./drawer.js";
 import { readForm } from "./forms.js";
-import { baseBranch, repoActions } from "./repoactions.js";
+import { MERGE_DIRTY, baseBranch, mergeHint, repoActions } from "./repoactions.js";
 import { kindOf } from "./kinds.js";
 import { cards, detail } from "./state.js";
 import { notice } from "./ui.js";
@@ -25,19 +25,35 @@ export async function loadDiffs(c) {
       }
       const empty = !d.diff && !d.log;
       return `<div class="repo"><div class="head"><b>${esc(d.repo.repo_path)}</b>
-        ${empty ? `<span class="meta">no changes — will be dropped</span>` : repoSelect(d.repo, c.push_default)}</div>
+        ${empty ? `<span class="meta">no changes — will be dropped</span>` : repoSelect(d.repo, c.push_default, d)}</div>
         <div class="meta">${esc(d.repo.branch)} from ${esc(d.repo.base_ref)}</div>
+        ${d.repo.merge_pending ? notice("info", "Merge pending: the checkout has uncommitted changes. The board merges this branch once the checkout is clean (checked every half minute); approve again with another action to cancel.") : ""}
+        <div id="md-hint-${d.repo.id}"></div>
         ${d.repo.error ? notice("bad", `Not closed: ${esc(d.repo.error)}. The worktree and branch are kept; choose an action and approve again.`) : ""}
         ${d.error ? notice("bad", esc(d.error)) : ""}
         ${d.log ? `<pre>${esc(d.log)}</pre>` : ""}
         ${d.diff ? sec(c.id, `diff:${d.repo.id}`, "Diff", `<pre class="diff">${colorDiff(d.diff)}</pre>`, false, "sub") : ""}</div>`;
     }).join("");
+    el.querySelectorAll("select[data-repo]").forEach((s) => mergeChoiceChanged(s.dataset.repo));
   } catch (e) { el.textContent = e.message; }
   finally { el.removeAttribute("aria-busy"); }
 }
-function repoSelect(repo, pushDefault) {
+function repoSelect(repo, pushDefault, d) {
   const { opts, selected } = repoActions(repo, pushDefault);
-  return `<select data-repo="${repo.id}">${opts.map(([v, l]) => `<option value="${v}" ${v === selected ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+  const def = d.merge_dirty || "worktree";
+  const hint = mergeHint(selected, def, d.checkout_dirty);
+  // Strategy for a dirty checkout, preset to the resolved merge_dirty setting; this approval only.
+  return `<select data-repo="${repo.id}" data-dirty="${d.checkout_dirty ? 1 : ""}" onchange="mergeChoiceChanged(${repo.id})">${opts.map(([v, l]) => `<option value="${v}" ${v === selected ? "selected" : ""}>${l}</option>`).join("")}</select>
+    <select data-mdirty="${repo.id}" title="If the checkout has uncommitted changes" onchange="mergeChoiceChanged(${repo.id})" ${hint.show ? "" : "hidden"}>${MERGE_DIRTY.map(([v, l]) => `<option value="${v}" ${v === def ? "selected" : ""}>if dirty: ${l}</option>`).join("")}</select>`;
+}
+// Shows or hides the dirty-checkout strategy of a repo and the warning that Merge will not happen.
+export function mergeChoiceChanged(id) {
+  const act = document.querySelector(`select[data-repo="${id}"]`), md = document.querySelector(`select[data-mdirty="${id}"]`);
+  if (!act || !md) return;
+  const hint = mergeHint(act.value, md.value, !!act.dataset.dirty);
+  md.hidden = !hint.show;
+  const el = $(`#md-hint-${id}`);
+  if (el) el.innerHTML = hint.warn ? notice("warn", `⚠ ${esc(hint.warn)}`) : "";
 }
 function colorDiff(s) {
   return s.split("\n").map((l) => {
@@ -83,10 +99,12 @@ export function sendBack() {
 }
 export function approve(refine = false) {
   const actions = {};
+  const merge_dirty = {};
   document.querySelectorAll("select[data-repo]").forEach((s) => actions[s.dataset.repo] = s.value);
+  document.querySelectorAll("select[data-mdirty]").forEach((s) => { if (actions[s.dataset.mdirty] === "merge") merge_dirty[s.dataset.mdirty] = s.value; });
   // A plan creates one card per ticked task.
   const tasks = [...document.querySelectorAll("input[data-task]:checked")].map((i) => +i.dataset.task);
-  act(detail.card.id, "approve", kindOf(detail.card) === "plan" ? { actions, tasks, ...(refine ? { refine } : {}) } : { actions });
+  act(detail.card.id, "approve", kindOf(detail.card) === "plan" ? { actions, tasks, ...(refine ? { refine } : {}) } : { actions, merge_dirty });
 }
 // The plan's approve button says how many cards it will create.
 export function planSelection() {

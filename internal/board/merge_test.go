@@ -113,7 +113,7 @@ func TestApproveMergeRefusals(t *testing.T) {
 		setup func(t *testing.T, repo string)
 		want  string
 	}{
-		"dirty": {func(t *testing.T, repo string) {
+		"dirty, refuse": {func(t *testing.T, repo string) {
 			os.WriteFile(filepath.Join(repo, "README.md"), []byte("edited\n"), 0o644)
 		}, "uncommitted changes"},
 		"other branch": {func(t *testing.T, repo string) {
@@ -122,6 +122,7 @@ func TestApproveMergeRefusals(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			app, c, repo, branch := mergeCard(t)
+			setMergeDirty(t, app, model.MergeRefuse)
 			tc.setup(t, repo)
 			head := testenv.Git(t, repo, "rev-parse", "HEAD")
 			r := approveMergeStuck(t, app, c)

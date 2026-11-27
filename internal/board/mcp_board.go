@@ -84,11 +84,14 @@ var boardTools = []map[string]any{
 	tool("approve_card", "Approve a card in review: applies the per-repo actions, removes the worktrees and moves it to done. "+
 		"If an action fails (merge refused, push or PR failed) the result is an error listing every repo with its outcome: that repo keeps its worktree and branch, the card stays in review, and approving again retries only the repos not closed yet. "+
 		"create_pr opens only the PR of a branch that was already pushed. "+
-		"merge merges the branch into the base branch of the local checkout (never pushes) when that checkout is on it and clean; otherwise the branch is kept. "+
+		"merge merges the branch into the base branch of the local checkout (never pushes). A checkout with uncommitted changes to tracked files follows the merge_dirty strategy (the board setting, or per repo in merge_dirty): "+
+		"worktree (default) merges without touching the working tree and fails when the merge touches a file the user changed, stash stashes, merges and restores, queue keeps the branch and merges once the checkout is clean (the card stays in review, repo marked merge_pending), refuse keeps the branch. "+
 		"Approving a plan card creates one Todo card per selected task. "+
 		"Pushing or opening a PR leaves this machine, so only choose push or pr after the user confirmed.",
 		withID([2]any{"?actions", map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
 			"description": "Repo id (from get_card) to merge, local, push, pr or create_pr; repos left out use the card's push default, then local"}},
+			[2]any{"?merge_dirty", map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string", "enum": []string{"worktree", "stash", "queue", "refuse"}},
+				"description": "Repo id to the strategy for merging into a checkout with uncommitted changes, for this approval only; repos left out use the resolved merge_dirty setting"}},
 			[2]any{"?tasks", map[string]any{"type": "array", "items": map[string]any{"type": "integer"},
 				"description": "Plan cards: indices (from 0, into plan_tasks) of the tasks to create as cards; left out creates all of them, an empty list none"}})...),
 	tool("discard_card", "Discard a card: removes its worktrees and branches and moves it to done. The work is lost, so only after the user confirmed.",
@@ -140,7 +143,9 @@ type boardArgs struct {
 	Text    string            `json:"text"`
 	Allow   bool              `json:"allow"`
 	Actions map[string]string `json:"actions"`
-	Tasks   []int             `json:"tasks"` // approve_card: plan tasks to create; absent means all
+	// approve_card: repo id → merge_dirty strategy for this approval
+	MergeDirty map[string]string `json:"merge_dirty"`
+	Tasks      []int             `json:"tasks"` // approve_card: plan tasks to create; absent means all
 }
 
 type cardSummary struct {
@@ -281,7 +286,7 @@ func (a *App) callBoardTool(name string, raw json.RawMessage) (string, bool) {
 		if err := needID(); err != nil {
 			return err.Error(), true
 		}
-		actions := map[int64]string{}
+		actions, strategies := map[int64]string{}, map[int64]string{}
 		for k, v := range args.Actions {
 			rid, err := strconv.ParseInt(k, 10, 64)
 			if err != nil {
@@ -289,7 +294,14 @@ func (a *App) callBoardTool(name string, raw json.RawMessage) (string, bool) {
 			}
 			actions[rid] = v
 		}
-		_, outcomes, err := a.approveSelected(id, actions, args.Tasks)
+		for k, v := range args.MergeDirty {
+			rid, err := strconv.ParseInt(k, 10, 64)
+			if err != nil {
+				return fmt.Sprintf("bad repo id %q in merge_dirty", k), true
+			}
+			strategies[rid] = v
+		}
+		_, outcomes, err := a.approveSelected(id, actions, strategies, args.Tasks)
 		if err == nil {
 			a.note(id, "approved by %s", viaMCP)
 		}

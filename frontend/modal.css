@@ -114,6 +114,11 @@ pre { background: var(--code); border-radius: 6px; padding: 8px 10px; overflow-x
 .picker-row.dir svg { color: var(--accent); }
 .picker-row.file svg { color: var(--muted); }
 .picker-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill { --tone: var(--muted); font-weight: 500; border-color: color-mix(in oklab, var(--tone) 40%, var(--panel)); background: color-mix(in oklab, var(--tone) 16%, var(--panel)); color: color-mix(in oklab, var(--tone) 40%, var(--text)); }
+.pill-gray { --tone: #78746c; } .pill-violet { --tone: #7c3aed; } .pill-blue { --tone: #2563eb; } .pill-amber { --tone: #d97706; }
+.pill-orange { --tone: #ea580c; } .pill-cyan { --tone: #0891b2; } .pill-red { --tone: #dc2626; } .pill-green { --tone: #16a34a; }
+.pill-indigo { --tone: #4f46e5; } .pill-lime { --tone: #65a30d; } .pill-teal { --tone: #0d9488; } .pill-pink { --tone: #db2777; }
+@media (prefers-color-scheme: dark) { .pill { color: color-mix(in oklab, var(--tone) 45%, var(--text)); } }
 .picker-row .badge { margin: 0; flex: none; color: var(--muted); }
 .picker-empty { padding: 10px; }
 .picker-foot { display: flex; align-items: center; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--border); }

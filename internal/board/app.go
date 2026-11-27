@@ -37,6 +37,9 @@ type App struct {
 	stopReq  chan struct{}             // asks serve to shut the board down
 	stopOnce sync.Once
 
+	// Serialises closing repos (approve, drag to Done, queued merge retries).
+	closeMu sync.Mutex
+
 	// Leases on local-work folders (see lease.go). Lock order: leaseMu before mu.
 	leaseMu  sync.Mutex
 	queue    []*leaseWaiter // cards waiting for a leased folder, first come first served
@@ -190,6 +193,23 @@ func (h *Hub) Publish(kind string, v any) {
 		select {
 		case ch <- msg:
 		default: // slow client; it refetches on reconnect
+		}
+	}
+}
+
+// mergePollEvery is how often the checkouts of queued merges (merge_dirty "queue") are checked.
+const mergePollEvery = 30 * time.Second
+
+// pollPendingMerges retries queued merges now and then every every, until the board quits.
+func (a *App) pollPendingMerges(every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		a.retryPendingMerges()
+		select {
+		case <-a.quit:
+			return
+		case <-t.C:
 		}
 	}
 }

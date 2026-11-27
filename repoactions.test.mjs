@@ -22,3 +22,18 @@ test("a pushed branch without a PR offers Create PR and defaults to it", () => {
 test("a pushed branch that has its PR offers no Create PR", () => {
   assert.ok(!values({ pushed: true, pr_url: "https://x/pr/1" }).includes("create_pr"));
 });
+
+import { MERGE_DIRTY, mergeHint } from "./frontend/js/repoactions.js";
+
+test("the strategy choice only shows for Merge", () => {
+  assert.equal(mergeHint("local", "refuse", true).show, false);
+  assert.equal(mergeHint("merge", "worktree", true).show, true);
+  assert.deepEqual(MERGE_DIRTY.map(([v]) => v), ["worktree", "stash", "queue", "refuse"]);
+});
+
+test("refuse on a dirty checkout warns that Merge will not happen", () => {
+  assert.match(mergeHint("merge", "refuse", true).warn, /will not happen/);
+  assert.equal(mergeHint("merge", "refuse", false).warn, "");
+  assert.equal(mergeHint("merge", "stash", true).warn, "");
+  assert.equal(mergeHint("push", "refuse", true).warn, "");
+});
