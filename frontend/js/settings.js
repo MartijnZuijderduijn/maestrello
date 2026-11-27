@@ -6,6 +6,7 @@ import { harnessAvailability, harnessInfo, modelSelect } from "./harness.js";
 import { pathField } from "./picker.js";
 import { cards, setOpenId } from "./state.js";
 import { projects } from "./projects.js";
+import { actions, button } from "./ui.js";
 import { $, esc, select } from "./util.js";
 
 export async function openSettings() {
@@ -33,7 +34,7 @@ export async function openSettings() {
     </div>
     <textarea id="s-projsettings" rows="5">${esc(JSON.stringify([...projects.values()][0]?.settings || {}, null, 1))}</textarea>
     ${harnessAvailability()}
-    <div class="actions"><button class="primary" onclick="saveSettings()">Save</button></div>`);
+    ${actions(button("Save", "saveSettings()", "primary"))}`);
 }
 const projByName = () => [...projects.values()].find((p) => p.name === $("#s-proj")?.value);
 export function projectSettingsChanged() {

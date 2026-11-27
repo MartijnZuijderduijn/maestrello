@@ -4,6 +4,7 @@ import { closeDrawer, sec } from "./drawer.js";
 import { readForm } from "./forms.js";
 import { kindOf } from "./kinds.js";
 import { cards, detail } from "./state.js";
+import { notice } from "./ui.js";
 import { $, esc, select } from "./util.js";
 
 const ICON_REPO = `<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>`;
@@ -17,7 +18,7 @@ export async function loadDiffs(c) {
       if (d.repo.local_since) {
         return `<div class="repo"><div class="head"><b>${esc(d.repo.repo_path)}</b>
           <span class="meta">local work, edited in place; stays as is on approve or discard</span></div>
-          ${d.error ? `<div class="notice bad">${esc(d.error)}</div>` : ""}
+          ${d.error ? notice("bad", esc(d.error)) : ""}
           <div class="meta">${esc(d.log)}</div>
           ${d.diff ? `<pre>${esc(d.diff)}</pre>` : ""}</div>`;
       }
@@ -26,7 +27,7 @@ export async function loadDiffs(c) {
         ${empty ? `<span class="meta">no changes — will be dropped</span>` : `<select data-repo="${d.repo.id}">${[["merge", `Merge into ${baseBranch(d.repo.base_ref)}`], ["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
           .map(([v, l]) => `<option value="${v}" ${v === (c.push_default || "local") ? "selected" : ""}>${l}</option>`).join("")}</select>`}</div>
         <div class="meta">${esc(d.repo.branch)} from ${esc(d.repo.base_ref)}</div>
-        ${d.error ? `<div class="notice bad">${esc(d.error)}</div>` : ""}
+        ${d.error ? notice("bad", esc(d.error)) : ""}
         ${d.log ? `<pre>${esc(d.log)}</pre>` : ""}
         ${d.diff ? sec(c.id, `diff:${d.repo.id}`, "Diff", `<pre class="diff">${colorDiff(d.diff)}</pre>`, false, "sub") : ""}</div>`;
     }).join("");

@@ -2,28 +2,26 @@ import { api } from "./api.js";
 import { openCard } from "./card.js";
 import { openDrawer, sec } from "./drawer.js";
 import { syncExclusive } from "./exclusive.js";
-import { harnessInfo, harnessSelect, harnesses, modelSelect, autoModelChanged } from "./harness.js";
+import { autoModelChanged, harnessInfo, harnessSelect } from "./harness.js";
 import { KINDS, kindOf } from "./kinds.js";
 import { FILE, FOLDER, pathField, pickPath } from "./picker.js";
 import { projects } from "./projects.js";
 import { cards, openId, setOpenId } from "./state.js";
+import { actions, agentParams, button, field, promptField, textField } from "./ui.js";
 import { $, esc, select } from "./util.js";
 
+// Harness, effort, permission mode, push default and the agent parameters: shared by the card forms and the settings.
 export function settingsFields(c) {
   const h = harnessInfo(c.harness);
   return `<div class="row">
-      <div><label>Harness</label>${harnessSelect("f-harness", c.harness)}</div>
-      <div><label>Model</label>${modelSelect("f-model", c.model, h, c.auto_model)}</div>
-      <div><label>Effort</label>${select("f-effort", h.efforts, c.effort)}</div>
-      <div><label>Permission mode</label>${select("f-mode", h.permission_modes, c.permission_mode)}</div>
+      <div>${field("Harness", harnessSelect("f-harness", c.harness))}</div>
+      <div>${field("Effort", select("f-effort", h.efforts, c.effort))}</div>
+      <div>${field("Permission mode", select("f-mode", h.permission_modes, c.permission_mode))}</div>
+      <div>${field("Push default", `<select id="f-push">${[["", "decide at review"], ["merge", "merge into base"], ["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
+        .map(([v, l]) => `<option value="${v}" ${v === c.push_default ? "selected" : ""}>${l}</option>`).join("")}</select>`)}</div>
     </div>
     <div class="hav note" id="harness-note">${h.available ? "" : esc(`${h.name} is not available: ${h.error}. Cards on it cannot run.`)}</div>
-    <div class="row">
-      <div><label>Max turns</label><input id="f-turns" type="number" min="0" value="${c.max_turns}"></div>
-      <div><label>Max minutes</label><input id="f-minutes" type="number" min="0" value="${c.max_minutes}"></div>
-      <div><label>Push default</label><select id="f-push">${[["", "decide at review"], ["merge", "merge into base"], ["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
-        .map(([v, l]) => `<option value="${v}" ${v === c.push_default ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-    </div>`;
+    ${agentParams("f", c)}`;
 }
 function projectSelect(value) {
   const all = [...projects.values()].sort((a, b) => a.id - b.id);
@@ -37,8 +35,7 @@ export function projectChanged() {
 }
 // The title and description fields of a card that is being edited.
 function titleFields(c) {
-  return `<label>Title</label><input id="f-title" value="${esc(c.title)}">
-    <label>Description</label><textarea id="f-desc" rows="7">${esc(c.description)}</textarea>`;
+  return field("Title", `<input id="f-title" value="${esc(c.title)}">`) + textField("f-desc", "Description", c.description, 7);
 }
 // Everything but the text: shared by the New card modal (under "Options") and the card detail.
 // The new card form has no title; `isNew` words the skip box for a lone prompt.
@@ -171,9 +168,9 @@ export async function openNew(pid) {
   const c = { title: "", description: "", project_id: p?.id, root_folder: p ? p.root_folder : s.default_root_folder, harness: s.harness, model: s.default_model, effort: s.default_effort,
     permission_mode: s.default_permission_mode, max_turns: s.default_max_turns, max_minutes: s.default_max_minutes, push_default: s.default_push_default,
     auto_run: s.default_auto_run, auto_model: s.auto_model, skip_refinement: s.default_skip_refinement, tools: toolDefaults.code || [] };
-  openDrawer("New card", `<label>Prompt</label><textarea id="f-newprompt" rows="8" placeholder="Describe the task…" onkeydown="newPromptKey(event)"></textarea>
-    ${sec("new", "options", "Options", cardForm(c, true), false)}
-    <div class="actions"><button onclick="createCard(false)">Create</button><button class="primary" id="create-refine" onclick="createCard(true)">Create and refine</button></div>`);
+  openDrawer("New card", promptField("f-newprompt", "", `placeholder="Describe the task…" onkeydown="newPromptKey(event)"`)
+    + sec("new", "options", "Options", cardForm(c, true), false)
+    + actions(button("Create", "createCard(false)"), button("Create and refine", "createCard(true)", "primary", `id="create-refine"`)));
   kindChanged();
   $("#f-newprompt").focus();
 }

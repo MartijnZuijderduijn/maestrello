@@ -4,6 +4,7 @@ import { closeDrawer, openDrawer } from "./drawer.js";
 import { morphInto } from "./morph.js";
 import { pathField } from "./picker.js";
 import { cards, setOpenId } from "./state.js";
+import { actions, button } from "./ui.js";
 import { $, esc, lsGet, lsSet } from "./util.js";
 
 // ---------- projects ----------
@@ -75,7 +76,7 @@ export async function openNewProject() {
   openDrawer("New project", `<label>Name</label><input id="p-name">
     <label>Root folder</label>${pathField("p-root", s.default_root_folder, "/path/to/folder/with/repos")}
     <div class="meta">New cards in this project start with this root folder.</div>
-    <div class="actions"><button class="primary" onclick="createProject()">Create</button></div>`);
+    ${actions(button("Create", "createProject()", "primary"))}`);
   $("#p-name").focus();
 }
 export async function openEditProject(e, id) {
@@ -87,7 +88,7 @@ export async function openEditProject(e, id) {
   openDrawer("Edit project", `<label>Name</label><input id="p-name" value="${esc(p.name)}" onkeydown="if (event.key === 'Enter') saveProject(${id})">
     <label>Root folder</label>${pathField("p-root", p.root_folder, "/path/to/folder/with/repos")}
     <div class="meta">New cards in this project start with this root folder. Existing cards keep theirs.</div>
-    <div class="actions"><button class="primary" onclick="saveProject(${id})">Save</button></div>`);
+    ${actions(button("Save", `saveProject(${id})`, "primary"))}`);
   $("#p-name").focus();
 }
 export async function saveProject(id) {

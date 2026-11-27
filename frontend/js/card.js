@@ -2,12 +2,13 @@ import { act, api } from "./api.js";
 import { avatarHTML } from "./avatars.js";
 import { closeDrawer, openDrawer, sec } from "./drawer.js";
 import { cardForm, ctxIcon, refreshToolSupport, toolbox } from "./forms.js";
-import { harnessIcon, harnessInfo, modelSelect } from "./harness.js";
+import { harnessIcon } from "./harness.js";
 import { kindOf } from "./kinds.js";
 import { md } from "./markdown.js";
 import { projects } from "./projects.js";
-import { answer, chatKey, discard, loadDiffs, planSelection, replyChat, saveCard, saveReady } from "./review.js";
+import { loadDiffs } from "./review.js";
 import { COLUMNS, cards, detail, openId, setDetail, setOpenId } from "./state.js";
+import { actions, agentParams, answerField, busy, button, confirmButton, feedbackBox, logSection, notice, promptField, reposEditor, reposList, textSection } from "./ui.js";
 import { $, esc } from "./util.js";
 
 // While the card loads, the modal opens with placeholder lines; renderDetail's openDrawer swaps in the real body.
@@ -36,92 +37,71 @@ function renderDetail() {
   const label = Object.fromEntries(COLUMNS)[c.status];
   let body = "";
 
-  if (c.warning) body += `<div class="notice warn">⚠ ${esc(c.warning)}</div>`;
-  if (c.status === "failed" && c.fail_reason) body += `<div class="notice bad">${esc(c.fail_reason)}</div>`;
+  if (c.warning) body += notice("warn", `⚠ ${esc(c.warning)}`);
+  if (c.status === "failed" && c.fail_reason) body += notice("bad", esc(c.fail_reason));
+  const kind = kindOf(c);
+  const refine = (label, variant, wrap = (a) => a) => kind === "chat" ? "" : button(label, wrap(`act(${c.id}, 'refine')`), variant);
 
   switch (c.status) {
     case "todo":
-      body += sec(c.id, "card", "Card", cardForm(c)) + `<div class="actions"><button onclick="saveCard()">Save</button>
-        ${kindOf(c) === "chat" ? "" : `<button class="primary" onclick="saveCard().then(() => act(${c.id}, 'refine'))">Refine</button>`}
-        <button class="danger" onclick="deleteCard()">Delete</button></div>`;
+      body += sec(c.id, "card", "Card", cardForm(c))
+        + actions(button("Save", "saveCard()"), refine("Refine", "primary", (a) => `saveCard().then(() => ${a})`), delBtn());
       break;
     case "refining":
-      body += `<div class="notice info"><span class="dot"></span>Refining…</div>` + descBlock(c);
+      body += busy("Refining…") + textSection(c.id, "description", "Description", c.description || "(none)");
       break;
     case "ready":
-      body += `${c.refine_notes ? `<div class="notice info">${esc(c.refine_notes)}</div>` : ""}
-        ${sec(c.id, "prompt", "Refined prompt", `<div class="md" id="prompt-md">${md(c.refined_prompt)}</div>`
-          + sec(c.id, "prompt-edit", "Edit", `<textarea id="f-prompt" rows="14">${esc(c.refined_prompt)}</textarea>`, false, "sub"))}
-        ${sec(c.id, "repos", `Repos (one per line, relative to ${esc(c.root_folder)}${kindOf(c) === "code" ? "" : "; informational: this card only reads"})`, `<textarea id="f-repos" rows="4">${esc(repos.map((r) => r.repo_path).join("\n"))}</textarea>`)}
-        ${sec(c.id, "settings", "Card and run settings", cardForm(c), false)}
-        <div class="actions"><button onclick="saveReady()">Save</button>
-          <button class="primary" onclick="saveReady().then(() => act(${c.id}, 'run'))">Run</button>
-          ${kindOf(c) === "chat" ? "" : `<button onclick="act(${c.id}, 'refine')">Refine again</button>`}
-          <button class="danger" onclick="deleteCard()">Delete</button></div>`;
+      body += (c.refine_notes ? notice("info", esc(c.refine_notes)) : "")
+        + promptSection(c, true)
+        + sec(c.id, "repos", `Repos (one per line, relative to ${esc(c.root_folder)}${kind === "code" ? "" : "; informational: this card only reads"})`, reposEditor(repos))
+        + sec(c.id, "settings", "Card and run settings", cardForm(c), false)
+        + actions(button("Save", "saveReady()"), button("Run", `saveReady().then(() => act(${c.id}, 'run'))`, "primary"), refine("Refine again"), delBtn());
       break;
     case "running":
-      if (c.waiting_on) {
-        body += `<div class="notice warn">${esc(c.activity || `waiting on card #${c.waiting_on}`)}. Only one card at a time may edit a local folder; this one starts on its own when <a href="#" onclick="event.preventDefault(); openCard(${c.waiting_on})">#${c.waiting_on}</a> is done with it.</div>
-          <div class="actions"><button class="danger" onclick="if (confirm('Take the card out of the queue? It goes to Failed.')) act(${c.id}, 'stop')">Stop waiting</button></div>`;
-        break;
-      }
-      body += `<div class="notice info"><span class="dot"></span>${esc(c.activity || "working")}</div>
-        <div class="actions"><button class="danger" onclick="if (confirm('Stop the agent? The card goes to Failed.')) act(${c.id}, 'stop')">Stop</button></div>`;
+      body += c.waiting_on
+        ? notice("warn", `${esc(c.activity || `waiting on card #${c.waiting_on}`)}. Only one card at a time may edit a local folder; this one starts on its own when <a href="#" onclick="event.preventDefault(); openCard(${c.waiting_on})">#${c.waiting_on}</a> is done with it.`)
+          + actions(confirmButton("Stop waiting", "Take the card out of the queue? It goes to Failed.", `act(${c.id}, 'stop')`))
+        : busy(c.activity || "working") + actions(stop(c));
       break;
     case "needs_input":
       body += inputPanel(c, inputs.find((i) => !i.answered_at), live);
       break;
     case "review": {
-      const kind = kindOf(c);
       const tasks = c.plan_tasks || [];
-      const ro = kind !== "code"; // research and plan cards have no changes to review
+      const idle = live ? `disabled title="agent still finishing"` : "";
+      body += summarySection(c);
       if (kind === "plan") {
-        body += sec(c.id, "summary", "Plan", `<pre>${esc(c.summary || "(no plan)")}</pre>`)
-          + sec(c.id, "tasks", "Proposed tasks", tasks.map((t, i) => `<label class="check task"><input type="checkbox" data-task="${i}" checked onchange="planSelection()">
+        body += sec(c.id, "tasks", "Proposed tasks", tasks.map((t, i) => `<label class="check task"><input type="checkbox" data-task="${i}" checked onchange="planSelection()">
             <span><b>${esc(t.title)}</b>${t.kind && t.kind !== "code" ? ` <span class="badge">${esc(t.kind)}</span>` : ""}
             ${(t.repos || []).length ? `<span class="meta"> · ${esc(t.repos.join(", "))}</span>` : ""}<pre>${esc(t.description)}</pre></span></label>`).join("") || `<div class="meta">no tasks</div>`);
-      } else {
-        body += sec(c.id, "summary", kind === "research" ? "Report" : "Summary", `<pre>${esc(c.summary || (ro ? "(no report)" : "(no summary)"))}</pre>`);
-        if (!ro) body += sec(c.id, "changes", "Changes", `<div id="diffs" class="meta" aria-busy="true"><span class="skeleton line" aria-hidden="true"></span><span class="skeleton line short" aria-hidden="true"></span><span class="skeleton line" aria-hidden="true"></span><span class="sr-only" role="status">Loading diffs…</span></div>`);
+      } else if (kind === "code") {
+        body += sec(c.id, "changes", "Changes", `<div id="diffs" class="meta" aria-busy="true"><span class="skeleton line" aria-hidden="true"></span><span class="skeleton line short" aria-hidden="true"></span><span class="skeleton line" aria-hidden="true"></span><span class="sr-only" role="status">Loading diffs…</span></div>`);
       }
-      body += `
-        <div class="actions"><button class="primary" id="approve-btn" onclick="approve()" ${live ? "disabled title='agent still finishing'" : ""}>${kind === "plan" ? `Create ${tasks.length} cards` : "Approve"}</button>
-          ${kind === "plan" ? `<button class="primary" id="approve-refine-btn" onclick="approve(true)" ${live ? "disabled title='agent still finishing'" : ""}>Create ${tasks.length} and refine</button>` : ""}
-          <button class="danger" onclick="discard()">Discard</button></div>
-        <label>Send back with feedback</label><textarea id="f-feedback" rows="3"></textarea>
-        <div class="actions"><button onclick="sendBack()">Send back</button></div>`;
+      body += actions(button(kind === "plan" ? `Create ${tasks.length} cards` : "Approve", "approve()", "primary", `id="approve-btn" ${idle}`),
+          kind === "plan" && button(`Create ${tasks.length} and refine`, "approve(true)", "primary", `id="approve-refine-btn" ${idle}`), discardBtn())
+        + feedbackBox("");
       break;
     }
     case "failed":
-      body += `<label>Send back with feedback</label><textarea id="f-feedback" rows="3"></textarea>
-        <div class="actions"><button class="primary" onclick="sendBack()">Send back</button>
-          ${!c.session_id && kindOf(c) !== "chat" ? `<button onclick="act(${c.id}, 'refine')">Refine again</button>` : ""}
-          <button class="danger" onclick="discard()">Discard</button></div>`;
+      body += feedbackBox("primary", !c.session_id && refine("Refine again"), discardBtn());
       break;
     case "done":
-      body += c.summary ? sec(c.id, "summary", { research: "Report", plan: "Plan" }[kindOf(c)] || "Summary", `<pre>${esc(c.summary)}</pre>`) : "";
-      body += sec(c.id, "repos", "Repos", repos.map((r) => `<div class="repo"><b>${esc(r.repo_path)}</b> — ${esc(r.result || "not checked out")}
-        ${r.pr_url ? ` · <a href="${esc(r.pr_url)}" target="_blank" rel="noopener">${esc(r.pr_url)}</a>` : ""}</div>`).join("") || `<div class="meta">none</div>`);
-      body += `<div class="actions"><button class="danger" onclick="deleteCard()">Delete card</button></div>`;
+      body += (c.summary ? summarySection(c) : "") + actions(delBtn());
       break;
   }
 
   // Todo and Ready cards edit these in their forms above; running, refining and waiting cards cannot be edited.
   if (["review", "failed", "done"].includes(c.status) && !live) body += agentPanel(c);
-  if (!["todo", "ready", "done", "review"].includes(c.status) && repos.length) {
-    body += sec(c.id, "repos", "Repos", repos.map((r) => `<div class="meta">${esc(r.repo_path)}${r.branch ? ` · ${esc(r.branch)} from ${esc(r.base_ref)}` : " · not checked out"}</div>`).join(""));
-  }
-  if (c.refined_prompt && !["ready", "todo"].includes(c.status)) {
-    body += sec(c.id, "prompt", "Refined prompt", `<div class="md">${md(c.refined_prompt)}</div>`, false);
-  }
-  body += sec(c.id, "log", "Log", `<div class="log" id="log">${events.map(eventHTML).join("") || '<span class="meta">nothing yet</span>'}</div>`);
+  if (!["todo", "ready", "review"].includes(c.status) && repos.length) body += sec(c.id, "repos", "Repos", reposList(repos));
+  if (c.refined_prompt && !["ready", "todo"].includes(c.status)) body += promptSection(c);
+  body += logSection(c.id, events.map(eventHTML).join(""));
 
   const avLive = (c.status === "running" || c.status === "refining") && !c.waiting_on; // same rule as the board card
   const sid = c.session_id ? `<span title="${esc(c.session_id)}">session ${esc(c.session_id.slice(0, 8))}…</span>` : "";
   const editable = c.status === "todo" || c.status === "ready"; // these show the context in their form
 
   // Create metadata for the modal header: status badge, card #, and type badge
-  const meta = `<span class="badge">${label}</span><b>#${c.id}</b>${kindOf(c) !== "code" ? `<span class="badge">${esc(kindOf(c))}</span>` : ""}`;
+  const meta = `<span class="badge">${label}</span><b>#${c.id}</b>${kind !== "code" ? `<span class="badge">${esc(kind)}</span>` : ""}`;
 
   // Agent info without the card #, type, and status (they're now in the header)
   const info = `<div class="agent-info">
@@ -136,51 +116,49 @@ function renderDetail() {
   refreshToolSupport();
   $("#drawer-body").scrollTop = scroll;
   const log = $("#log"); if (log) log.scrollTop = log.scrollHeight;
-  if (c.status === "review" && kindOf(c) === "code") loadDiffs(c);
+  if (c.status === "review" && kind === "code") loadDiffs(c);
 }
 
+// Functions, not constants: the module cycle through ui.js may run this file before ui.js.
+const delBtn = () => button("Delete", "deleteCard()", "danger"), discardBtn = () => button("Discard", "discard()", "danger");
+const stop = (c) => confirmButton("Stop", "Stop the agent? The card goes to Failed.", `act(${c.id}, 'stop')`);
+// The summary, report or plan the agent left.
+function summarySection(c) {
+  const title = { research: "Report", plan: "Plan" }[kindOf(c)] || "Summary";
+  return textSection(c.id, "summary", title, c.summary || `(no ${title.toLowerCase()})`);
+}
+// The refined prompt as markdown; a Ready card edits it in a sub-section that previews into #prompt-md.
+function promptSection(c, edit = false) {
+  return sec(c.id, "prompt", "Refined prompt", `<div class="md"${edit ? ` id="prompt-md"` : ""}>${md(c.refined_prompt)}</div>`
+    + (edit ? sec(c.id, "prompt-edit", "Edit", promptField("f-prompt", c.refined_prompt), false, "sub") : ""), edit);
+}
 // The prompt, model and budget of a card that is not running; the board refuses the edit of a running one too.
 function agentPanel(c) {
-  return sec(c.id, "agent", "Agent parameters", `<label>Prompt</label><textarea id="a-prompt" rows="8">${esc(c.refined_prompt)}</textarea>
-    <div class="row">
-      <div><label>Model</label>${modelSelect("a-model", c.model, harnessInfo(c.harness), c.auto_model)}</div>
-      <div><label>Max turns</label><input id="a-turns" type="number" min="1" value="${c.max_turns}"></div>
-      <div><label>Max minutes</label><input id="a-minutes" type="number" min="1" value="${c.max_minutes}"></div>
-    </div>
-    <div class="actions"><button onclick="saveAgent()">Save agent parameters</button></div>`, false);
+  return sec(c.id, "agent", "Agent parameters", promptField("a-prompt", c.refined_prompt) + agentParams("a", c, 1)
+    + actions(button("Save agent parameters", "saveAgent()")), false);
 }
 
-function descBlock(c) { return sec(c.id, "description", "Description", `<pre>${esc(c.description || "(none)")}</pre>`); }
-
 function inputPanel(c, input, live) {
-  if (!input) return `<div class="notice info">Waiting for input, but none is open.</div>`;
-  const p = input.payload || {};
+  if (!input) return notice("info", "Waiting for input, but none is open.");
+  const p = input.payload || {}, id = input.id;
   const via = live ? "" : `<div class="meta">The session isn't live; answering resumes it.</div>`;
+  const reply = (verb, label, variant) => button(label, `answer(${id}, false, '${verb}')`, variant);
   switch (input.kind) {
     case "question":
-      return sec(c.id, "input", "The agent asks", `<pre>${esc(p.question)}</pre>${via}`) + `
-        <label>Your answer</label><textarea id="f-answer" rows="4"></textarea>
-        <div class="actions"><button class="primary" onclick="answer(${input.id})">Send answer</button>
-        ${live ? `<button class="danger" onclick="act(${c.id}, 'stop')">Stop agent</button>` : `<button class="danger" onclick="discard()">Discard</button>`}</div>`;
+      return textSection(c.id, "input", "The agent asks", p.question, via) + answerField("Your answer")
+        + actions(button("Send answer", `answer(${id})`, "primary"), live ? stop(c) : discardBtn());
     case "permission":
-      return sec(c.id, "input", `Permission request: ${esc(p.tool_name)}`, `<pre>${esc(JSON.stringify(p.input, null, 2))}</pre>${via}`) + `
-        <label>Note to the agent (optional)</label><input id="f-answer">
-        <div class="actions"><button class="primary" onclick="answer(${input.id}, true)">Allow</button>
-          <button onclick="answer(${input.id}, false)">Deny</button></div>`;
+      return textSection(c.id, "input", `Permission request: ${esc(p.tool_name)}`, JSON.stringify(p.input, null, 2), via) + answerField("Note to the agent (optional)")
+        + actions(button("Allow", `answer(${id}, true)`, "primary"), button("Deny", `answer(${id}, false)`));
     case "chat":
-      return sec(c.id, "input", "The agent replies", `<pre class="chat-reply">${esc(p.text || "(no reply)")}</pre>${via}`) + `
-        <label>Your reply</label><textarea id="f-answer" rows="4" placeholder="Ctrl/Cmd+Enter to send" onkeydown="chatKey(event, ${input.id})"></textarea>
-        <div class="actions"><button class="primary" onclick="replyChat(${input.id})">Reply</button>
-          <button onclick="act(${c.id}, 'move', { status: 'done' })">Close chat</button></div>`;
+      return textSection(c.id, "input", "The agent replies", p.text || "(no reply)", via, "chat-reply")
+        + answerField("Your reply", `placeholder="Ctrl/Cmd+Enter to send" onkeydown="chatKey(event, ${id})"`)
+        + actions(button("Reply", `replyChat(${id})`, "primary"), button("Close chat", `act(${c.id}, 'move', { status: 'done' })`));
     case "limit":
-      return `<div class="notice warn">${p.reason === "turn_limit" ? `Turn limit (${p.max_turns}) reached.` : `Time limit (${p.max_minutes} min) reached.`}
-Continue with a fresh budget, or discard the work.</div>
-        <div class="actions"><button class="primary" onclick="answer(${input.id}, false, 'continue')">Continue</button>
-          <button class="danger" onclick="answer(${input.id}, false, 'discard')">Discard</button></div>`;
+      return notice("warn", `${p.reason === "turn_limit" ? `Turn limit (${p.max_turns}) reached.` : `Time limit (${p.max_minutes} min) reached.`}\nContinue with a fresh budget, or discard the work.`)
+        + actions(reply("continue", "Continue", "primary"), reply("discard", "Discard", "danger"));
     case "usage_limit":
-      return `<div class="notice warn">Usage limit hit.\n${esc(p.message)}</div>
-        <div class="actions"><button class="primary" onclick="answer(${input.id}, false, 'retry')">Retry</button>
-          <button class="danger" onclick="answer(${input.id}, false, 'discard')">Discard</button></div>`;
+      return notice("warn", `Usage limit hit.\n${esc(p.message)}`) + actions(reply("retry", "Retry", "primary"), reply("discard", "Discard", "danger"));
   }
   return `<pre>${esc(JSON.stringify(input))}</pre>`;
 }
