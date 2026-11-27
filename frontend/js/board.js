@@ -8,6 +8,7 @@ import { kindMeta } from "./kinds.js";
 import { morphInto } from "./morph.js";
 import { idsInRect, normRect } from "./marquee.js";
 import { folded, laneHeights, projectCards, projects, saveLaneHeights, toggleLane, visibleProjects } from "./projects.js";
+import { renderWorkspace } from "./workspace.js";
 import { collapsedLast, resizePair } from "./splitter.js";
 import { COLUMNS, cards, openId } from "./state.js";
 import { $, esc, flash } from "./util.js";
@@ -62,6 +63,7 @@ function renderBoardNow() {
   const board = $("#board"), saved = saveScroll(board);
   try { renderBoardInner(); } finally {
     restoreScroll(board, saved);
+    renderWorkspace();
     // Track every card, rendered or not, so cards revealed later (lane unfolded) don't animate.
     if (seenStatus || cards.size) seenStatus = new Map([...cards.values()].map((c) => [c.id, c.status]));
   }
