@@ -8,6 +8,7 @@ import (
 
 	"maestrello/internal/model"
 	"maestrello/internal/store"
+	"maestrello/internal/testenv"
 )
 
 func wsWorkspace(t *testing.T, app *App, p *model.Project, done bool) *WorkspaceView {
@@ -137,5 +138,27 @@ func TestWorkspaceUnknownProject(t *testing.T) {
 	app := newTestApp(t, dir)
 	if _, err := app.Workspace(9999, false); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestWorkspaceHTTP(t *testing.T) {
+	dir := testenv.Dir(t)
+	app := newTestApp(t, dir)
+	p := mkProject(t, app, "A", dir)
+	var out struct {
+		ProjectID int64            `json:"project_id"`
+		Entries   []map[string]any `json:"entries"`
+	}
+	if code := sendJSON(t, "GET", app.baseURL+"/api/projects/"+itoa(p.ID)+"/workspace", nil, &out); code != 200 {
+		t.Fatalf("workspace = %d", code)
+	}
+	if out.ProjectID != p.ID || out.Entries == nil || len(out.Entries) != 0 {
+		t.Errorf("out = %+v", out)
+	}
+	if code := sendJSON(t, "GET", app.baseURL+"/api/projects/999999/workspace", nil, nil); code != 404 {
+		t.Errorf("unknown = %d", code)
+	}
+	if code := sendJSON(t, "GET", app.baseURL+"/api/projects/x/workspace", nil, nil); code != 400 {
+		t.Errorf("bad id = %d", code)
 	}
 }
