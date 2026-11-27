@@ -1,10 +1,13 @@
 package board
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"maestrello/internal/model"
@@ -72,8 +75,9 @@ type WorkspaceWaiter struct {
 }
 
 // Workspace builds the workspace view of a project. It reads the store and the
-// lease files only.
-func (a *App) Workspace(projectID int64, includeDone bool) (*WorkspaceView, error) {
+// lease files only, unless withGit is set: then ahead/dirty are filled for
+// worktree uses, concurrently and best effort (nil on error or ctx expiry).
+func (a *App) Workspace(ctx context.Context, projectID int64, includeDone, withGit bool) (*WorkspaceView, error) {
 	p, err := a.store.GetProject(projectID)
 	if err != nil {
 		return nil, err
@@ -218,7 +222,45 @@ func (a *App) Workspace(projectID int64, includeDone bool) (*WorkspaceView, erro
 	if entries == nil {
 		entries = []*WorkspaceEntry{}
 	}
+	if withGit {
+		a.fillGitState(ctx, entries)
+	}
 	return &WorkspaceView{ProjectID: p.ID, RootFolder: p.RootFolder, Entries: entries}, nil
+}
+
+// fillGitState sets Ahead and Dirty on every use with a real worktree, running
+// at most 4 git calls at a time. Failures leave the fields nil.
+func (a *App) fillGitState(ctx context.Context, entries []*WorkspaceEntry) {
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 4)
+	for _, e := range entries {
+		if e.Kind != "git" {
+			continue
+		}
+		for _, u := range e.Uses {
+			if u.Planned || u.WorktreePath == "" {
+				continue
+			}
+			wg.Add(1)
+			go func(u *WorkspaceUse) {
+				defer wg.Done()
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					return
+				}
+				if n, err := a.git.AheadCount(ctx, u.WorktreePath, u.BaseRef); err == nil {
+					u.Ahead = &n
+				}
+				if st, err := a.git.Status(ctx, u.WorktreePath); err == nil {
+					d := strings.TrimSpace(st) != ""
+					u.Dirty = &d
+				}
+			}(u)
+		}
+	}
+	wg.Wait()
 }
 
 // handleWorkspace serves GET /api/projects/{id}/workspace; ?done=1 includes done
@@ -230,7 +272,10 @@ func (a *App) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	done := r.URL.Query().Get("done")
-	view, err := a.Workspace(id, done != "" && done != "0")
+	git := r.URL.Query().Get("git")
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	view, err := a.Workspace(ctx, id, done != "" && done != "0", git != "" && git != "0")
 	if err != nil {
 		writeErr(w, err)
 		return
