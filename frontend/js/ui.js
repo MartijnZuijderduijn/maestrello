@@ -33,7 +33,7 @@ export const agentParams = (p, c, min = 0) => `<div class="row">
   </div>`;
 // A card's repos, read-only: path, then branch, result and PR when there are any.
 export const reposList = (repos) => repos.map((r) => `<div class="repo"><b>${esc(r.repo_path)}</b> — ${[
-  r.branch && esc(`${r.branch} from ${r.base_ref}`), r.result && esc(r.result),
+  r.branch && esc(`${r.branch} from ${r.base_ref}`), r.result && esc(r.result), r.error && `<span style="color:var(--bad)">failed: ${esc(r.error)}</span>`,
   r.pr_url && `<a href="${esc(r.pr_url)}" target="_blank" rel="noopener">${esc(r.pr_url)}</a>`].filter(Boolean).join(" · ") || "not checked out"}</div>`).join("");
 // A card's repos, one path per line; saveReady() reads #f-repos.
 export const reposEditor = (repos) => `<textarea id="f-repos" rows="4">${esc(repos.map((r) => r.repo_path).join("\n"))}</textarea>`;

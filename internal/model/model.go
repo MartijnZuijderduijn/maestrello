@@ -126,6 +126,11 @@ type CardRepo struct {
 	OrigStatus   string `json:"-"` // `git status --porcelain` of the original checkout at checkout time
 	Result       string `json:"result"`
 	PRURL        string `json:"pr_url"`
+	// Error is why the last close attempt (approve) failed: merge refused, push or PR failed.
+	// A repo with an Error is still open (empty Result): worktree and branch are kept for a retry.
+	Error string `json:"error,omitempty"`
+	// Pushed is set once the branch is on origin, so a retry only needs the PR step.
+	Pushed bool `json:"pushed,omitempty"`
 	// LocalSince is set for local work: a folder that is not a git repo, which the
 	// agent edits in place. It holds the RFC 3339 time the card started using it.
 	LocalSince string `json:"local_since,omitempty"`

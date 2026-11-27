@@ -1,6 +1,7 @@
 package board
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,32 @@ func approveMerge(t *testing.T, app *App, c *model.Card) *model.CardRepo {
 	}
 	waitStatus(t, app, c.ID, model.StatusDone)
 	return mustRepos(t, app, c.ID)[0]
+}
+
+// approveMergeStuck approves with merge and expects the merge to be refused: the card stays in
+// Review and the repo keeps its worktree, branch and a failure reason.
+func approveMergeStuck(t *testing.T, app *App, c *model.Card) *model.CardRepo {
+	t.Helper()
+	r := mustRepos(t, app, c.ID)[0]
+	err := app.Approve(c.ID, map[int64]string{r.ID: "merge"})
+	var stuck *ApproveError
+	if !errors.As(err, &stuck) || len(stuck.Repos) != 1 || stuck.Repos[0].OK {
+		t.Fatalf("approve err = %v, want an ApproveError with the failed repo", err)
+	}
+	if got, _ := app.store.GetCard(c.ID); got.Status != model.StatusReview {
+		t.Errorf("card is %s, want review", got.Status)
+	}
+	r = mustRepos(t, app, c.ID)[0]
+	if r.Result != "" || r.Error == "" {
+		t.Errorf("result = %q, error = %q", r.Result, r.Error)
+	}
+	if _, err := os.Stat(r.WorktreePath); err != nil {
+		t.Errorf("worktree not kept: %v", err)
+	}
+	if _, err := os.Stat(app.workDir(c.ID)); err != nil {
+		t.Errorf("workspace cleaned up: %v", err)
+	}
+	return r
 }
 
 func hasBranch(t *testing.T, repo, branch string) bool {
@@ -97,9 +124,9 @@ func TestApproveMergeRefusals(t *testing.T) {
 			app, c, repo, branch := mergeCard(t)
 			tc.setup(t, repo)
 			head := testenv.Git(t, repo, "rev-parse", "HEAD")
-			r := approveMerge(t, app, c)
-			if !strings.HasPrefix(r.Result, "kept local on "+branch+": not merged, ") || !strings.Contains(r.Result, tc.want) {
-				t.Errorf("result = %q", r.Result)
+			r := approveMergeStuck(t, app, c)
+			if !strings.Contains(r.Error, "merge not done") || !strings.Contains(r.Error, tc.want) {
+				t.Errorf("error = %q", r.Error)
 			}
 			if !hasBranch(t, repo, branch) {
 				t.Error("branch was not kept")
@@ -121,9 +148,9 @@ func TestApproveMergeConflict(t *testing.T) {
 	testenv.Git(t, repo, "commit", "-qm", "conflicting change")
 	main := testenv.Git(t, repo, "rev-parse", "main")
 
-	r := approveMerge(t, app, c)
-	if !strings.Contains(r.Result, "merge conflict") || !strings.HasPrefix(r.Result, "kept local on "+branch) {
-		t.Errorf("result = %q", r.Result)
+	r := approveMergeStuck(t, app, c)
+	if !strings.Contains(r.Error, "merge conflict") || !strings.Contains(r.Error, branch) {
+		t.Errorf("error = %q", r.Error)
 	}
 	if testenv.Git(t, repo, "rev-parse", "main") != main {
 		t.Error("main changed")
@@ -162,4 +189,97 @@ func mustNotes(t *testing.T, app *App, id int64) []string {
 		}
 	}
 	return out
+}
+
+// A refused merge can be retried once the checkout is fixed: only then the card is done.
+func TestApproveMergeRetry(t *testing.T) {
+	app, c, repo, branch := mergeCard(t)
+	testenv.Git(t, repo, "checkout", "-q", "-b", "elsewhere")
+	approveMergeStuck(t, app, c)
+	found := false
+	for _, n := range mustNotes(t, app, c.ID) {
+		found = found || strings.Contains(n, "approval incomplete")
+	}
+	if !found {
+		t.Error("no card note about the failure")
+	}
+	testenv.Git(t, repo, "checkout", "-q", "main")
+	r := approveMerge(t, app, c)
+	if r.Result != "merged into main" || r.Error != "" {
+		t.Errorf("result = %q, error = %q", r.Result, r.Error)
+	}
+	if hasBranch(t, repo, branch) {
+		t.Error("merged branch not deleted")
+	}
+	if _, err := os.Stat(app.workDir(c.ID)); !os.IsNotExist(err) {
+		t.Error("workspace not cleaned up")
+	}
+}
+
+// With two repos, the one that succeeded is closed and stays closed on the retry.
+func TestApproveOneRepoFailsOtherCloses(t *testing.T) {
+	_, root, app := repoFixture(t)
+	c := readyCard(t, app, root, "WRITE ADD:svc/b", "svc/a")
+	if err := app.Run(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, app, c.ID, model.StatusReview)
+	repos := mustRepos(t, app, c.ID)
+	actions := map[int64]string{}
+	for _, r := range repos {
+		actions[r.ID] = "merge"
+	}
+	testenv.Git(t, filepath.Join(root, "svc/a"), "checkout", "-q", "-b", "elsewhere")
+	if err := app.Approve(c.ID, actions); err == nil {
+		t.Fatal("approve succeeded with a refused merge")
+	}
+	for _, r := range mustRepos(t, app, c.ID) {
+		if (r.RepoPath == "svc/b") != (r.Result == "merged into main") || (r.RepoPath == "svc/a") != (r.Error != "") {
+			t.Errorf("%s: result %q, error %q", r.RepoPath, r.Result, r.Error)
+		}
+	}
+	testenv.Git(t, filepath.Join(root, "svc/a"), "checkout", "-q", "main")
+	if err := app.Approve(c.ID, actions); err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, app, c.ID, model.StatusDone)
+}
+
+// A branch that was pushed but whose PR is missing gets the PR step only.
+func TestCreatePROnlyAfterPush(t *testing.T) {
+	app, c, repo, branch := mergeCard(t)
+	r := mustRepos(t, app, c.ID)[0]
+	if err := app.Approve(c.ID, map[int64]string{r.ID: "create_pr"}); err == nil {
+		t.Fatal("create_pr of an unpushed branch succeeded")
+	}
+	r = mustRepos(t, app, c.ID)[0]
+	if r.Pushed || !strings.Contains(r.Error, "not pushed") {
+		t.Errorf("pushed = %v, error = %q", r.Pushed, r.Error)
+	}
+	// Pretend an earlier attempt pushed and its PR failed; the origin must not be touched again.
+	r.Pushed = true
+	app.store.SaveRepo(r)
+	origin := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(repo))), "origins", "svc/a.git")
+	if err := app.Approve(c.ID, map[int64]string{r.ID: "create_pr"}); err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, app, c.ID, model.StatusDone)
+	r = mustRepos(t, app, c.ID)[0]
+	if r.Result != "PR opened" || !strings.HasPrefix(r.PRURL, "sandbox://pr/") {
+		t.Errorf("result = %q, pr = %q", r.Result, r.PRURL)
+	}
+	if testenv.Git(t, origin, "branch", "--list", branch) != "" {
+		t.Error("create_pr pushed the branch")
+	}
+}
+
+func TestApproveUnknownActionChangesNothing(t *testing.T) {
+	app, c, _, _ := mergeCard(t)
+	r := mustRepos(t, app, c.ID)[0]
+	if err := app.Approve(c.ID, map[int64]string{r.ID: "bogus"}); err == nil {
+		t.Fatal("unknown action accepted")
+	}
+	if got := mustRepos(t, app, c.ID)[0]; got.Result != "" || got.Error != "" {
+		t.Errorf("repo touched: %+v", got)
+	}
 }

@@ -16,7 +16,7 @@ export async function api(method, path, body) {
 }
 export async function act(id, action, body) {
   try { await api("POST", `/api/cards/${id}/${action}`, body); await loadDetail(id); }
-  catch (e) { alert(e.message); }
+  catch (e) { alert(e.message); loadDetail(id); } // e.g. an approval that left a repo failed: show it on the repo
 }
 
 // ---------- live updates ----------

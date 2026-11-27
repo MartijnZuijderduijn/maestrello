@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS card_repos (
 	result TEXT NOT NULL DEFAULT '',
 	pr_url TEXT NOT NULL DEFAULT '',
 	local_since TEXT NOT NULL DEFAULT '',
+	error TEXT NOT NULL DEFAULT '',
+	pushed INTEGER NOT NULL DEFAULT 0,
 	UNIQUE(card_id, repo_path)
 );
 CREATE TABLE IF NOT EXISTS inputs (
@@ -104,6 +106,8 @@ func OpenStore(path string) (*Store, error) {
 	}
 	// Columns added after the first release; the error on an up-to-date db is expected.
 	db.Exec(`ALTER TABLE card_repos ADD COLUMN local_since TEXT NOT NULL DEFAULT ''`)
+	db.Exec(`ALTER TABLE card_repos ADD COLUMN error TEXT NOT NULL DEFAULT ''`)
+	db.Exec(`ALTER TABLE card_repos ADD COLUMN pushed INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE cards ADD COLUMN waiting_on INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE cards ADD COLUMN auto_run INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE cards ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude'`)
@@ -277,7 +281,7 @@ func (s *Store) DeleteCard(id int64) error {
 	return nil
 }
 
-const repoCols = `id, card_id, repo_path, worktree_path, branch, base_ref, orig_status, result, pr_url, local_since`
+const repoCols = `id, card_id, repo_path, worktree_path, branch, base_ref, orig_status, result, pr_url, local_since, error, pushed`
 
 func (s *Store) Repos(cardID int64) ([]*model.CardRepo, error) {
 	rows, err := s.db.Query(`SELECT `+repoCols+` FROM card_repos WHERE card_id=? ORDER BY repo_path`, cardID)
@@ -288,7 +292,7 @@ func (s *Store) Repos(cardID int64) ([]*model.CardRepo, error) {
 	repos := []*model.CardRepo{}
 	for rows.Next() {
 		var r model.CardRepo
-		if err := rows.Scan(&r.ID, &r.CardID, &r.RepoPath, &r.WorktreePath, &r.Branch, &r.BaseRef, &r.OrigStatus, &r.Result, &r.PRURL, &r.LocalSince); err != nil {
+		if err := rows.Scan(&r.ID, &r.CardID, &r.RepoPath, &r.WorktreePath, &r.Branch, &r.BaseRef, &r.OrigStatus, &r.Result, &r.PRURL, &r.LocalSince, &r.Error, &r.Pushed); err != nil {
 			return nil, err
 		}
 		repos = append(repos, &r)
@@ -327,8 +331,8 @@ func (s *Store) AddRepo(r *model.CardRepo) error {
 }
 
 func (s *Store) SaveRepo(r *model.CardRepo) error {
-	_, err := s.db.Exec(`UPDATE card_repos SET worktree_path=?, branch=?, base_ref=?, orig_status=?, result=?, pr_url=?, local_since=? WHERE id=?`,
-		r.WorktreePath, r.Branch, r.BaseRef, r.OrigStatus, r.Result, r.PRURL, r.LocalSince, r.ID)
+	_, err := s.db.Exec(`UPDATE card_repos SET worktree_path=?, branch=?, base_ref=?, orig_status=?, result=?, pr_url=?, local_since=?, error=?, pushed=? WHERE id=?`,
+		r.WorktreePath, r.Branch, r.BaseRef, r.OrigStatus, r.Result, r.PRURL, r.LocalSince, r.Error, r.Pushed, r.ID)
 	return err
 }
 
