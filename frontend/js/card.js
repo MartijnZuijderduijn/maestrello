@@ -4,6 +4,7 @@ import { closeDrawer, openDrawer, sec } from "./drawer.js";
 import { cardForm, ctxIcon, refreshToolSupport, toolbox } from "./forms.js";
 import { harnessIcon } from "./harness.js";
 import { kindOf } from "./kinds.js";
+import { kindPill, statePill } from "./pills.js";
 import { md } from "./markdown.js";
 import { projects } from "./projects.js";
 import { loadDiffs } from "./review.js";
@@ -72,7 +73,7 @@ function renderDetail() {
       body += summarySection(c);
       if (kind === "plan") {
         body += sec(c.id, "tasks", "Proposed tasks", tasks.map((t, i) => `<label class="check task"><input type="checkbox" data-task="${i}" checked onchange="planSelection()">
-            <span><b>${esc(t.title)}</b>${t.kind && t.kind !== "code" ? ` <span class="badge">${esc(t.kind)}</span>` : ""}
+            <span><b>${esc(t.title)}</b>${t.kind && t.kind !== "code" ? ` ${kindPill(t.kind)}` : ""}
             ${(t.repos || []).length ? `<span class="meta"> · ${esc(t.repos.join(", "))}</span>` : ""}<pre>${esc(t.description)}</pre></span></label>`).join("") || `<div class="meta">no tasks</div>`);
       } else if (kind === "code") {
         body += sec(c.id, "changes", "Changes", `<div id="diffs" class="meta" aria-busy="true"><span class="skeleton line" aria-hidden="true"></span><span class="skeleton line short" aria-hidden="true"></span><span class="skeleton line" aria-hidden="true"></span><span class="sr-only" role="status">Loading diffs…</span></div>`);
@@ -101,7 +102,7 @@ function renderDetail() {
   const editable = c.status === "todo" || c.status === "ready"; // these show the context in their form
 
   // Create metadata for the modal header: status badge, card #, and type badge
-  const meta = `<span class="badge">${label}</span><b>#${c.id}</b>${kind !== "code" ? `<span class="badge">${esc(kind)}</span>` : ""}`;
+  const meta = `${statePill(c.status, label || c.status)}<b>#${c.id}</b>${kind !== "code" ? kindPill(kind) : ""}`;
 
   // Agent info without the card #, type, and status (they're now in the header)
   const info = `<div class="agent-info">
