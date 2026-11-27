@@ -2,6 +2,7 @@ import { act, api } from "./api.js";
 import { loadDetail } from "./card.js";
 import { closeDrawer, sec } from "./drawer.js";
 import { readForm } from "./forms.js";
+import { baseBranch, repoActions } from "./repoactions.js";
 import { kindOf } from "./kinds.js";
 import { cards, detail } from "./state.js";
 import { notice } from "./ui.js";
@@ -24,9 +25,9 @@ export async function loadDiffs(c) {
       }
       const empty = !d.diff && !d.log;
       return `<div class="repo"><div class="head"><b>${esc(d.repo.repo_path)}</b>
-        ${empty ? `<span class="meta">no changes — will be dropped</span>` : `<select data-repo="${d.repo.id}">${[["merge", `Merge into ${baseBranch(d.repo.base_ref)}`], ["local", "keep local"], ["push", "push branch"], ["pr", "push + PR"]]
-          .map(([v, l]) => `<option value="${v}" ${v === (c.push_default || "local") ? "selected" : ""}>${l}</option>`).join("")}</select>`}</div>
+        ${empty ? `<span class="meta">no changes — will be dropped</span>` : repoSelect(d.repo, c.push_default)}</div>
         <div class="meta">${esc(d.repo.branch)} from ${esc(d.repo.base_ref)}</div>
+        ${d.repo.error ? notice("bad", `Not closed: ${esc(d.repo.error)}. The worktree and branch are kept; choose an action and approve again.`) : ""}
         ${d.error ? notice("bad", esc(d.error)) : ""}
         ${d.log ? `<pre>${esc(d.log)}</pre>` : ""}
         ${d.diff ? sec(c.id, `diff:${d.repo.id}`, "Diff", `<pre class="diff">${colorDiff(d.diff)}</pre>`, false, "sub") : ""}</div>`;
@@ -34,8 +35,10 @@ export async function loadDiffs(c) {
   } catch (e) { el.textContent = e.message; }
   finally { el.removeAttribute("aria-busy"); }
 }
-// The local branch a base ref such as origin/main stands for.
-function baseBranch(ref) { return (ref || "").replace(/^origin\//, ""); }
+function repoSelect(repo, pushDefault) {
+  const { opts, selected } = repoActions(repo, pushDefault);
+  return `<select data-repo="${repo.id}">${opts.map(([v, l]) => `<option value="${v}" ${v === selected ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+}
 function colorDiff(s) {
   return s.split("\n").map((l) => {
     const e = esc(l);

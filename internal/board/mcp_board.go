@@ -81,11 +81,13 @@ var boardTools = []map[string]any{
 			optProp("text", "string", "The answer, or a note with the allow/deny decision"),
 			optProp("allow", "boolean", "Allow a permission request"))...),
 	tool("approve_card", "Approve a card in review: applies the per-repo actions, removes the worktrees and moves it to done. "+
+		"If an action fails (merge refused, push or PR failed) the result is an error listing every repo with its outcome: that repo keeps its worktree and branch, the card stays in review, and approving again retries only the repos not closed yet. "+
+		"create_pr opens only the PR of a branch that was already pushed. "+
 		"merge merges the branch into the base branch of the local checkout (never pushes) when that checkout is on it and clean; otherwise the branch is kept. "+
 		"Approving a plan card creates one Todo card per selected task. "+
 		"Pushing or opening a PR leaves this machine, so only choose push or pr after the user confirmed.",
 		withID([2]any{"?actions", map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
-			"description": "Repo id (from get_card) to merge, local, push or pr; repos left out use the card's push default, then local"}},
+			"description": "Repo id (from get_card) to merge, local, push, pr or create_pr; repos left out use the card's push default, then local"}},
 			[2]any{"?tasks", map[string]any{"type": "array", "items": map[string]any{"type": "integer"},
 				"description": "Plan cards: indices (from 0, into plan_tasks) of the tasks to create as cards; left out creates all of them, an empty list none"}})...),
 	tool("discard_card", "Discard a card: removes its worktrees and branches and moves it to done. The work is lost, so only after the user confirmed.",
@@ -99,6 +101,25 @@ func (a *App) handleBoardMCP(w http.ResponseWriter, r *http.Request) {
 }
 
 // toolJSON returns v as the text of a tool result.
+// approveResult is the approve_card result: the per-repo outcomes and the card, as an error
+// when the card stayed in Review because a repo action failed.
+func approveResult(a *App, id int64, outcomes []RepoOutcome, err error) (string, bool) {
+	var stuck *ApproveError
+	if err != nil && !errors.As(err, &stuck) {
+		return err.Error(), true
+	}
+	c, cerr := a.store.GetCard(id)
+	if cerr != nil {
+		return cerr.Error(), true
+	}
+	res := map[string]any{"card": c, "repos": outcomes}
+	if stuck != nil {
+		res["error"] = err.Error()
+	}
+	out, _ := toolJSON(res)
+	return out, stuck != nil
+}
+
 func toolJSON(v any) (string, bool) {
 	out, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -267,11 +288,11 @@ func (a *App) callBoardTool(name string, raw json.RawMessage) (string, bool) {
 			}
 			actions[rid] = v
 		}
-		err := a.ApproveSelected(id, actions, args.Tasks)
+		_, outcomes, err := a.approveSelected(id, actions, args.Tasks)
 		if err == nil {
 			a.note(id, "approved by %s", viaMCP)
 		}
-		return card(err)
+		return approveResult(a, id, outcomes, err)
 
 	case "discard_card":
 		if err := needID(); err != nil {

@@ -97,8 +97,12 @@ func (a *App) moveBy(id int64, to, by string) error {
 		for _, r := range repos {
 			keep[r.ID] = "local" // a drag never pushes
 		}
-		if err := a.closeRepos(card, keep); err != nil {
+		outcomes, err := a.closeRepos(card, keep)
+		if err != nil {
 			return err
+		}
+		if failedRepos(outcomes) > 0 {
+			return &ApproveError{outcomes}
 		}
 		a.cleanupWorkspace(id)
 	}

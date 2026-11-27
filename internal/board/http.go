@@ -474,10 +474,16 @@ func (a *App) handleAction(w http.ResponseWriter, r *http.Request) {
 			rid, _ := strconv.ParseInt(k, 10, 64)
 			actions[rid] = v
 		}
-		if body.Refine {
-			err = a.ApproveAndRefine(id, actions, body.Tasks)
+		var outcomes []RepoOutcome
+		if outcomes, err = a.approveAndRefine(id, actions, body.Tasks, body.Refine); err != nil {
+			var stuck *ApproveError
+			if errors.As(err, &stuck) { // the card stayed in Review: the client shows which repos failed
+				writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "error": err.Error(), "repos": outcomes})
+				return
+			}
 		} else {
-			err = a.ApproveSelected(id, actions, body.Tasks)
+			writeJSON(w, 200, map[string]any{"ok": true, "repos": outcomes})
+			return
 		}
 	case "discard":
 		err = a.Discard(id)
