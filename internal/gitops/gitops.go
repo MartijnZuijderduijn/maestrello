@@ -90,32 +90,96 @@ func (g *Git) OriginURL(ctx context.Context, repo string) string {
 	return url
 }
 
-// FetchBase fetches origin and returns the ref to branch from (e.g. "origin/main").
-// Repos without an origin branch from their local HEAD.
-func (g *Git) FetchBase(ctx context.Context, repo string) (string, error) {
-	url := g.OriginURL(ctx, repo)
-	if url == "" {
+// BaseInfo describes where a card's branch can start: the local default branch and
+// origin's, after a fetch that may have failed.
+type BaseInfo struct {
+	Local    string // local default branch ("" when there is none)
+	Origin   string // "origin/<branch>" ("" when origin lacks it)
+	NoOrigin bool   // the repo has no origin remote: Local is its current HEAD
+	FetchErr string // why fetching origin failed; "" when it succeeded
+	Ahead    int    // commits local has that origin lacks (both set)
+	Behind   int    // commits origin has that local lacks (both set)
+}
+
+// Auto returns the ref to use without asking: the repo has no origin, or the fetch
+// worked and local and origin are the same commit.
+func (b *BaseInfo) Auto() (string, bool) {
+	switch {
+	case b.NoOrigin:
+		return b.Local, true
+	case b.FetchErr == "" && b.Local != "" && b.Origin != "" && b.Ahead == 0 && b.Behind == 0:
+		return b.Origin, true
+	}
+	return "", false
+}
+
+// Fetch fetches origin.
+func (g *Git) Fetch(ctx context.Context, repo string) error {
+	if url := g.OriginURL(ctx, repo); url != "" {
+		if err := g.guard.CheckRemoteURL(url); err != nil {
+			return err
+		}
+	}
+	_, err := g.run(ctx, repo, "fetch", "--quiet", "origin")
+	return err
+}
+
+// RefExists reports whether ref resolves to a commit in repo.
+func (g *Git) RefExists(ctx context.Context, repo, ref string) bool {
+	_, err := g.run(ctx, repo, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	return err == nil
+}
+
+// Bases fetches origin (a failure is recorded, not returned) and finds the candidates to
+// branch from. Repos without an origin branch from their local HEAD.
+func (g *Git) Bases(ctx context.Context, repo string) (*BaseInfo, error) {
+	if g.OriginURL(ctx, repo) == "" {
 		head, err := g.run(ctx, repo, "rev-parse", "--abbrev-ref", "HEAD")
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		return head, nil
+		return &BaseInfo{Local: head, NoOrigin: true}, nil
 	}
-	if err := g.guard.CheckRemoteURL(url); err != nil {
-		return "", err
+	info := &BaseInfo{}
+	if err := g.Fetch(ctx, repo); err != nil {
+		info.FetchErr = err.Error()
 	}
-	if _, err := g.run(ctx, repo, "fetch", "--quiet", "origin"); err != nil {
-		return "", err
+	name := g.originDefault(ctx, repo)
+	if name == "" {
+		name, _ = g.CurrentBranch(ctx, repo)
 	}
+	if name != "" && g.RefExists(ctx, repo, "refs/heads/"+name) {
+		info.Local = name
+	}
+	if name != "" && g.RefExists(ctx, repo, "refs/remotes/origin/"+name) {
+		info.Origin = "origin/" + name
+	}
+	if info.Local == "" && info.Origin == "" {
+		return nil, fmt.Errorf("cannot determine default branch of %s", repo)
+	}
+	if info.Local != "" && info.Origin != "" {
+		out, err := g.run(ctx, repo, "rev-list", "--left-right", "--count", info.Local+"..."+info.Origin)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := fmt.Sscanf(out, "%d\t%d", &info.Ahead, &info.Behind); err != nil {
+			return nil, fmt.Errorf("parse %q: %w", out, err)
+		}
+	}
+	return info, nil
+}
+
+// originDefault is the name of origin's default branch as far as the repo knows it, or "".
+func (g *Git) originDefault(ctx context.Context, repo string) string {
 	if ref, err := g.run(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
-		return ref, nil
+		return strings.TrimPrefix(ref, "origin/")
 	}
-	for _, cand := range []string{"origin/main", "origin/master"} {
-		if _, err := g.run(ctx, repo, "rev-parse", "--verify", "--quiet", cand); err == nil {
-			return cand, nil
+	for _, name := range []string{"main", "master"} {
+		if g.RefExists(ctx, repo, "refs/remotes/origin/"+name) {
+			return name
 		}
 	}
-	return "", fmt.Errorf("cannot determine default branch of %s", repo)
+	return ""
 }
 
 func (g *Git) AddWorktree(ctx context.Context, repo, path, branch, base string) error {
@@ -216,7 +280,7 @@ func (g *Git) CreatePR(ctx context.Context, repo, branch, base, title, body stri
 	if err := g.guard.Check(repo); err != nil {
 		return "", err
 	}
-	base = strings.TrimPrefix(base, "origin/")
+	base = strings.TrimPrefix(base, "origin/") // a local base branch has no prefix
 	if g.guard.Enabled() {
 		return "sandbox://pr/" + branch + "?base=" + base, nil
 	}

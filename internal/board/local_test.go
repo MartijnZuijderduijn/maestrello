@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,7 +127,7 @@ func TestNoAutoLocalWhenRootHoldsRepos(t *testing.T) {
 func TestDataDirIsNeverLocalWork(t *testing.T) {
 	app := newTestApp(t, testenv.Dir(t))
 	c := readyCard(t, app, app.dataDir, "nothing")
-	if _, err := app.checkoutRepo(c, "."); err == nil || !strings.Contains(err.Error(), "data folder") {
+	if _, err := app.checkoutRepo(context.Background(), c, "."); err == nil || !strings.Contains(err.Error(), "data folder") {
 		t.Errorf("checkout of the data dir = %v", err)
 	}
 	app.Run(c.ID)
@@ -141,7 +142,7 @@ func TestCheckoutRejectsEscapes(t *testing.T) {
 	app := newTestApp(t, dir)
 	c := newCard(t, app, root, "")
 	for _, p := range []string{"..", "../x", "src/../../x", "/etc", "missing"} {
-		if _, err := app.checkoutRepo(c, p); err == nil {
+		if _, err := app.checkoutRepo(context.Background(), c, p); err == nil {
 			t.Errorf("checkoutRepo(%q) accepted", p)
 		}
 	}

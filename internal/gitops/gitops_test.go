@@ -50,12 +50,13 @@ func TestWorktreeFlow(t *testing.T) {
 	g := &Git{guard: guard}
 	ctx := context.Background()
 
-	base, err := g.FetchBase(ctx, repo)
+	info, err := g.Bases(ctx, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if base != "origin/main" {
-		t.Errorf("base = %q", base)
+	base, ok := info.Auto()
+	if !ok || base != "origin/main" {
+		t.Errorf("base = %q (auto %v)", base, ok)
 	}
 
 	wt := filepath.Join(dir, "work", "1", "svc")
@@ -119,8 +120,9 @@ func TestSandboxRefusesRealRemotes(t *testing.T) {
 	g := &Git{guard: guard}
 	ctx := context.Background()
 
-	if _, err := g.FetchBase(ctx, repo); err == nil || !strings.Contains(err.Error(), "sandbox") {
-		t.Errorf("FetchBase with remote origin = %v, want sandbox error", err)
+	// Never fetched, and not fatal: the refusal is the fetch error to show me.
+	if info, err := g.Bases(ctx, repo); err != nil || !strings.Contains(info.FetchErr, "sandbox") {
+		t.Errorf("Bases with remote origin = %+v, %v, want a sandbox fetch error", info, err)
 	}
 	if err := g.Push(ctx, repo, "main"); err == nil || !strings.Contains(err.Error(), "sandbox") {
 		t.Errorf("Push with remote origin = %v, want sandbox error", err)
@@ -147,7 +149,7 @@ func TestAddWorktreeExisting(t *testing.T) {
 	guard, _ := sandbox.NewGuard(dir)
 	g := &Git{guard: guard}
 	ctx := context.Background()
-	base, _ := g.FetchBase(ctx, repo)
+	base := "origin/main"
 
 	if g.BranchExists(ctx, repo, "maestrello/1-x") {
 		t.Fatal("branch exists before creation")
@@ -215,5 +217,60 @@ func TestMergeHelpers(t *testing.T) {
 	}
 	if ok, _ := g.TrackedClean(ctx, repo); !ok {
 		t.Error("conflicted merge left changes behind")
+	}
+}
+
+func TestBases(t *testing.T) {
+	dir := testenv.Dir(t)
+	testenv.IsolateGit(t, dir)
+	repo := testenv.MakeRepo(t, dir, "svc")
+	guard, _ := sandbox.NewGuard(dir)
+	g := &Git{guard: guard}
+	ctx := context.Background()
+
+	// An unpushed local commit: local is ahead, so there is no automatic choice.
+	testenv.Git(t, repo, "commit", "-q", "--allow-empty", "-m", "unpushed")
+	info, err := g.Bases(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := info.Auto(); ok || info.Local != "main" || info.Origin != "origin/main" || info.Ahead != 1 || info.Behind != 0 || info.FetchErr != "" {
+		t.Errorf("ahead: %+v", info)
+	}
+
+	// A commit on origin as well: diverged.
+	other := filepath.Join(dir, "other")
+	testenv.Git(t, dir, "clone", "-q", filepath.Join(dir, "origins", "svc.git"), other)
+	testenv.Git(t, other, "commit", "-q", "--allow-empty", "-m", "upstream")
+	testenv.Git(t, other, "push", "-q", "origin", "main")
+	if info, _ = g.Bases(ctx, repo); info.Ahead != 1 || info.Behind != 1 {
+		t.Errorf("diverged: %+v", info)
+	}
+
+	// A failing fetch is recorded, not returned, and keeps the local candidate.
+	testenv.Git(t, repo, "remote", "set-url", "origin", filepath.Join(dir, "origins", "missing.git"))
+	info, err = g.Bases(ctx, repo)
+	if err != nil || info.FetchErr == "" || info.Local != "main" {
+		t.Errorf("failed fetch: %+v, %v", info, err)
+	}
+	if _, ok := info.Auto(); ok {
+		t.Error("a failed fetch must not be automatic")
+	}
+}
+
+func TestBasesNoOrigin(t *testing.T) {
+	dir := testenv.Dir(t)
+	testenv.IsolateGit(t, dir)
+	repo := filepath.Join(dir, "solo")
+	os.MkdirAll(repo, 0o755)
+	testenv.Git(t, repo, "init", "-q")
+	testenv.Git(t, repo, "commit", "-q", "--allow-empty", "-m", "first")
+	guard, _ := sandbox.NewGuard(dir)
+	info, err := (&Git{guard: guard}).Bases(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref, ok := info.Auto(); !ok || ref != "main" {
+		t.Errorf("auto = %q, %v", ref, ok)
 	}
 }

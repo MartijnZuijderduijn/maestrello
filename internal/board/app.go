@@ -51,8 +51,9 @@ type App struct {
 }
 
 type inputReply struct {
-	Answer string
-	Allow  bool
+	Answer  string
+	Allow   bool
+	Stopped bool // the wait was cut short (stop, discard), not answered
 }
 
 func (a *App) workDir(cardID int64) string {

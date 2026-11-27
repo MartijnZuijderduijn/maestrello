@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,7 +31,7 @@ var mcpTools = []map[string]any{
 		prop("reason", "string", "Why the task cannot be completed")),
 	tool("ask_user", "Ask the user a question and wait for the answer. Use instead of guessing.",
 		prop("question", "string", "The question, with enough context to answer it")),
-	tool("add_repo", "Add a repo or folder to your workspace. A git repo is checked out as a worktree on the card branch; a folder that is not a git repo is local work you edit in place (\".\" is the root folder itself). Returns where to work.",
+	tool("add_repo", "Add a repo or folder to your workspace. A git repo is checked out as a worktree on the card branch; a folder that is not a git repo is local work you edit in place (\".\" is the root folder itself). Returns where to work. It may ask the user which base to branch from and wait for the answer; do not clone, init or copy the repo yourself, and call report_failed if it cannot be resolved.",
 		prop("path", "string", "Repo path relative to the root folder")),
 	{
 		"name":        "permission",
@@ -244,7 +245,11 @@ func (a *App) callTool(r *http.Request, id int64, name string, raw json.RawMessa
 		return "Reported. The plan is in review; the user decides which tasks become cards. End your turn now.", false
 
 	case "add_repo":
-		repo, err := a.checkoutRepo(card, str("path"))
+		ctx := context.Background()
+		if r != nil { // tests call tools without a request
+			ctx = r.Context()
+		}
+		repo, err := a.checkoutRepo(ctx, card, str("path"))
 		var busy *LeaseBusyError
 		if errors.As(err, &busy) {
 			// Never block here: the holder may need minutes or hours.
@@ -252,11 +257,14 @@ func (a *App) callTool(r *http.Request, id int64, name string, raw json.RawMessa
 				"Carry on with other work and call add_repo again later, or use ask_user or report_failed if you cannot continue without it.",
 				busy.Folder, busy.Holder, busy.Title), true
 		}
+		if errors.Is(err, errNoAnswer) {
+			return "No answer: the session is ending.", true
+		}
 		if err != nil {
 			return "add_repo failed: " + err.Error(), true
 		}
 		if repo.Local() {
-			return fmt.Sprintf("%s is local work (not a git repo): edit it in place at %s, and do not run git there.", repo.RepoPath, repo.WorktreePath), false
+			return fmt.Sprintf("%s is local work: edit it in place at %s, and do not run git there.", repo.RepoPath, repo.WorktreePath), false
 		}
 		return fmt.Sprintf("Checked out %s at %s on branch %s (base %s).", repo.RepoPath, repo.WorktreePath, repo.Branch, repo.BaseRef), false
 
@@ -288,6 +296,11 @@ func (a *App) callTool(r *http.Request, id int64, name string, raw json.RawMessa
 
 // waitForInput puts the card in Needs input and blocks until I answer or the agent disconnects.
 func (a *App) waitForInput(r *http.Request, id int64, kind string, payload any) (inputReply, bool) {
+	return a.waitInput(r.Context(), id, kind, payload)
+}
+
+// waitInput is waitForInput for any context: ctx ends the wait.
+func (a *App) waitInput(ctx context.Context, id int64, kind string, payload any) (inputReply, bool) {
 	in, err := a.store.CreateInput(id, kind, payload)
 	if err != nil {
 		return inputReply{}, false
@@ -318,7 +331,7 @@ func (a *App) waitForInput(r *http.Request, id int64, kind string, payload any) 
 			}
 		})
 		return reply, true
-	case <-r.Context().Done():
+	case <-ctx.Done():
 		return inputReply{}, false
 	}
 }

@@ -154,6 +154,9 @@ function inputPanel(c, input, live) {
       return textSection(c.id, "input", "The agent replies", p.text || "(no reply)", via, "chat-reply")
         + answerField("Your reply", `placeholder="Ctrl/Cmd+Enter to send" onkeydown="chatKey(event, ${id})"`)
         + actions(button("Reply", `replyChat(${id})`, "primary"), button("Close chat", `act(${c.id}, 'move', { status: 'done' })`));
+    case "base":
+      return notice("warn", esc(p.message)) + via
+        + actions(...(p.options || []).map((o, i) => reply(o.answer, esc(o.label), i === 0 ? "primary" : "")), live ? "" : discardBtn());
     case "limit":
       return notice("warn", `${p.reason === "turn_limit" ? `Turn limit (${p.max_turns}) reached.` : `Time limit (${p.max_minutes} min) reached.`}\nContinue with a fresh budget, or discard the work.`)
         + actions(reply("continue", "Continue", "primary"), reply("discard", "Discard", "danger"));

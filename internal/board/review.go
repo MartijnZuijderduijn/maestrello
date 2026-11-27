@@ -315,7 +315,7 @@ func (a *App) pushAndPR(ctx context.Context, card *model.Card, r *model.CardRepo
 
 // reopenRepos undoes closeRepos for a card leaving Done: closed local-work repos are
 // claimed again, and every closed git repo gets its worktree back at the stored path, on
-// the card branch if it was kept, else on a new branch from the current base.
+// the card branch if it was kept, else on a new branch from the stored base (an origin base is fetched again first, which may fail harmlessly).
 func (a *App) reopenRepos(card *model.Card) error {
 	repos, err := a.store.Repos(card.ID)
 	if err != nil {
@@ -338,12 +338,7 @@ func (a *App) reopenRepos(card *model.Card) error {
 			if a.git.BranchExists(ctx, orig, r.Branch) {
 				err = a.git.AddWorktreeExisting(ctx, orig, r.WorktreePath, r.Branch)
 			} else {
-				var base string
-				if base, err = a.git.FetchBase(ctx, orig); err == nil {
-					if err = a.git.AddWorktree(ctx, orig, r.WorktreePath, r.Branch, base); err == nil {
-						r.BaseRef = base
-					}
-				}
+				err = a.reopenBase(ctx, orig, r)
 			}
 			if err != nil {
 				return fmt.Errorf("%s: reopen worktree: %w", r.RepoPath, err)
@@ -359,12 +354,27 @@ func (a *App) reopenRepos(card *model.Card) error {
 	return nil
 }
 
+// reopenBase adds a worktree for r on a new branch from r.BaseRef: a local branch as it is
+// now, an origin one after a fetch whose failure is ignored (the last fetched state serves).
+func (a *App) reopenBase(ctx context.Context, orig string, r *model.CardRepo) error {
+	if r.BaseRef == "" {
+		return errors.New("no base recorded to branch from")
+	}
+	if strings.HasPrefix(r.BaseRef, "origin/") {
+		a.git.Fetch(ctx, orig)
+	}
+	if !a.git.RefExists(ctx, orig, r.BaseRef) {
+		return fmt.Errorf("base %s no longer exists", r.BaseRef)
+	}
+	return a.git.AddWorktree(ctx, orig, r.WorktreePath, r.Branch, r.BaseRef)
+}
+
 // mergeLocal merges the card branch into the base branch in the original checkout, only when
 // that checkout is on the base branch and has no uncommitted changes to tracked files. It never
 // pushes. It sets r.Result on success; otherwise it returns why nothing was merged and the
 // branch is kept (a conflict is aborted and also noted on the card). The caller deletes a merged branch.
 func (a *App) mergeLocal(ctx context.Context, card *model.Card, r *model.CardRepo, orig string) error {
-	base := strings.TrimPrefix(r.BaseRef, "origin/")
+	base := strings.TrimPrefix(r.BaseRef, "origin/") // the local branch of an origin base; a local base has no prefix
 	cur, err := a.git.CurrentBranch(ctx, orig)
 	if err != nil {
 		return err
@@ -398,7 +408,8 @@ func (a *App) Discard(id int64) error {
 	if run := a.liveRun(id); run != nil {
 		return fmt.Errorf("the agent is still running; stop it first")
 	}
-	a.cancelWait(id) // a card waiting for a folder never started
+	a.cancelWait(id)     // a card waiting for a folder never started
+	a.releaseWaiters(id) // nor one still asking how to check out a repo
 	card, err := a.store.GetCard(id)
 	if err != nil {
 		return err

@@ -76,7 +76,8 @@ var boardTools = []map[string]any{
 		prop("status", "string", "Target column: todo, refining, ready, running, needs_input, review, failed or done"),
 		optProp("stop", "boolean", "Halt a live agent first. Only after the user confirmed")),
 	tool("answer_input", "Answer the question, permission request or limit prompt a card in needs_input is waiting on. "+
-		"For a permission request set allow; for a limit prompt answer \"continue\" or \"discard\".",
+		"For a permission request set allow; for a limit prompt answer \"continue\" or \"discard\"; "+
+		"for a base prompt (which base a card's branch starts from) answer with one of the answers listed in its payload options: local, origin, retry or inplace.",
 		withID(optProp("input_id", "integer", "Input id from get_card; defaults to the open input"),
 			optProp("text", "string", "The answer, or a note with the allow/deny decision"),
 			optProp("allow", "boolean", "Allow a permission request"))...),

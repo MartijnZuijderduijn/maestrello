@@ -109,7 +109,7 @@ These are the places you may change:
 A git repo is checked out in the workspace as a git worktree on branch %[2]s. Commit your work in each worktree on its branch. Do not push: the user decides about pushing.
 A folder marked "local work" is not a git repo: edit its files in place, and do not run git there. The user reviews the changed files.
 Everything else under %[4]s is READ-ONLY reference material: never edit files there, and never run git commands that change state (commit, checkout, reset, stash, branch, push) there.
-If you need to change a repo or folder that is not listed yet, call mcp__maestrello__add_repo with its path relative to %[4]s ("." is the root folder itself); it returns where to work.
+If you need to change a repo or folder that is not listed yet, call mcp__maestrello__add_repo with its path relative to %[4]s ("." is the root folder itself); it returns where to work. Never clone, init or copy a repo yourself: add_repo is the only way to get one, and it may ask the user how to check it out. If add_repo cannot be resolved, call report_failed.
 %[5]s
 If you need a decision or information only the user has, call mcp__maestrello__ask_user instead of guessing. It returns the user's answer.
 When the task is complete, call mcp__maestrello__report_done with a short summary of what changed and how you verified it.
@@ -204,6 +204,8 @@ func (a *App) Run(id int64) error {
 			a.beginSession(id)
 			return
 		}
+		ctx, cancel := a.quitContext()
+		defer cancel()
 		repos, err := a.store.Repos(id)
 		if err != nil {
 			a.fail(id, err.Error())
@@ -227,7 +229,10 @@ func (a *App) Run(id int64) error {
 			if r.WorktreePath != "" {
 				continue
 			}
-			if _, err := a.checkoutRepo(card, r.RepoPath); err != nil {
+			if _, err := a.checkoutRepo(ctx, card, r.RepoPath); err != nil {
+				if errors.Is(err, errNoAnswer) {
+					return // discarded or shut down while it asked me; whoever did that settled the card
+				}
 				a.fail(id, fmt.Sprintf("checkout %s: %v", r.RepoPath, err))
 				return
 			}
@@ -258,10 +263,24 @@ func (a *App) plainFolder(root string) bool {
 	return err == nil && len(repos) == 0
 }
 
-// checkoutRepo fetches the base, creates the card branch and worktree for one repo.
-// A folder that is not a git repo becomes local work: the agent edits it in place.
-// It is idempotent per repo; "." is the root folder itself.
-func (a *App) checkoutRepo(card *model.Card, rel string) (*model.CardRepo, error) {
+// quitContext ends when the board shuts down, so a wait for my answer does not outlive it.
+func (a *App) quitContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-a.quit:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
+}
+
+// checkoutRepo creates the card branch and worktree for one repo, branching from the base
+// chosen by chooseBase (which may ask me, waiting on ctx). A folder that is not a git repo
+// becomes local work: the agent edits it in place, and so does a repo I chose to work in
+// directly. It is idempotent per repo; "." is the root folder itself.
+func (a *App) checkoutRepo(ctx context.Context, card *model.Card, rel string) (*model.CardRepo, error) {
 	rel, orig, err := a.resolveRepo(card, rel)
 	if err != nil {
 		return nil, err
@@ -293,36 +312,52 @@ func (a *App) checkoutRepo(card *model.Card, rel string) (*model.CardRepo, error
 		return r, nil
 	}
 	if local {
-		r.WorktreePath = orig
-		r.LocalSince = time.Now().UTC().Format(time.RFC3339Nano)
-		if err := a.store.SaveRepo(r); err != nil {
-			return nil, err
-		}
-		a.note(card.ID, "%s is not a git repo: local work, edited in place", orig)
-		return r, nil
+		return r, a.checkoutInPlace(card, r, orig, "%s is not a git repo: local work, edited in place")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	base, err := a.git.FetchBase(ctx, orig)
+	base, inPlace, err := a.chooseBase(ctx, card, rel, orig, nil)
 	if err != nil {
 		return nil, err
 	}
-	r.OrigStatus, _ = a.git.Status(ctx, orig)
+	gctx, cancel := gitCtx()
+	defer cancel()
+	r.OrigStatus, _ = a.git.Status(gctx, orig)
 	r.Branch = branchName(card)
-	r.BaseRef = base
 	wt := filepath.Join(a.workDir(card.ID), rel)
 	if rel == "." {
 		wt = filepath.Join(a.workDir(card.ID), filepath.Base(card.RootFolder))
 	}
-	if err := a.git.AddWorktree(ctx, orig, wt, r.Branch, base); err != nil {
-		return nil, err
+	for !inPlace {
+		if err = a.git.AddWorktree(gctx, orig, wt, r.Branch, base); err == nil {
+			break
+		}
+		if base, inPlace, err = a.chooseBase(ctx, card, rel, orig, err); err != nil {
+			return nil, err
+		}
 	}
-	r.WorktreePath = wt
+	if inPlace {
+		r.Branch, r.OrigStatus = "", ""
+		if err := a.acquireNow(card, orig); err != nil {
+			return nil, err
+		}
+		return r, a.checkoutInPlace(card, r, orig, "%s: git checkout not possible or not wanted: local work, edited in place")
+	}
+	r.BaseRef, r.WorktreePath = base, wt
 	if err := a.store.SaveRepo(r); err != nil {
 		return nil, err
 	}
 	a.note(card.ID, "checked out %s at %s on %s", rel, base, r.Branch)
 	return r, nil
+}
+
+// checkoutInPlace records orig as local work of the card; format takes the folder for the note.
+func (a *App) checkoutInPlace(card *model.Card, r *model.CardRepo, orig, format string) error {
+	r.WorktreePath = orig
+	r.LocalSince = time.Now().UTC().Format(time.RFC3339Nano)
+	if err := a.store.SaveRepo(r); err != nil {
+		return err
+	}
+	a.note(card.ID, format, orig)
+	return nil
 }
 
 // resolveRepo checks a repo path relative to the card's root folder and returns
@@ -770,6 +805,9 @@ func (a *App) answerBy(id, inputID int64, answer string, allow bool, by string) 
 		return fmt.Errorf("input %d is not open", inputID)
 	}
 	note := strings.TrimSpace(answer)
+	if in.Kind == "base" && !validBaseAnswer(in, note) {
+		return fmt.Errorf("answer must be one of the offered options (see the input's payload)")
+	}
 	if in.Kind == "permission" {
 		answer = map[bool]string{true: "allow", false: "deny"}[allow]
 		if note != "" {
@@ -797,6 +835,8 @@ func (a *App) answerBy(id, inputID int64, answer string, allow bool, by string) 
 		return a.Resume(id, "Continue where you left off. Call report_done or report_failed when finished.")
 	case "permission":
 		return a.Resume(id, fmt.Sprintf("The session was interrupted while waiting for permission. The user's decision: %s. Continue.", answer))
+	case "base":
+		return a.Resume(id, fmt.Sprintf("add_repo was interrupted while it waited for the user's choice of base (%s). Call add_repo again for the repo you wanted; it asks again.", note))
 	case "chat":
 		if note == "" {
 			return fmt.Errorf("a reply is required")
@@ -819,7 +859,7 @@ func (a *App) releaseWaiters(id int64) {
 	if ch != nil {
 		a.store.AnswerInput(in.ID, "stopped")
 		select {
-		case ch <- inputReply{Answer: "The session is being stopped.", Allow: false}:
+		case ch <- inputReply{Answer: "The session is being stopped.", Stopped: true}:
 		default:
 		}
 	}
