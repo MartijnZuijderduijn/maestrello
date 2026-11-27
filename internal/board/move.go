@@ -97,7 +97,9 @@ func (a *App) moveBy(id int64, to, by string) error {
 		for _, r := range repos {
 			keep[r.ID] = "local" // a drag never pushes
 		}
-		outcomes, err := a.closeRepos(card, keep)
+		a.closeMu.Lock()
+		outcomes, err := a.closeRepos(card, keep, nil)
+		a.closeMu.Unlock()
 		if err != nil {
 			return err
 		}

@@ -56,6 +56,7 @@ func apply(o model.Overrides, st *model.Settings, kind, layer string, src map[st
 	num("max_turns", o.MaxTurns, &st.DefaultMaxTurns)
 	num("max_minutes", o.MaxMinutes, &st.DefaultMaxMinutes)
 	str("push_default", o.PushDefault, &st.DefaultPushDefault)
+	str("merge_dirty", o.MergeDirty, &st.MergeDirty)
 	str("refine_model", o.RefineModel, &st.RefineModel)
 	str("refine_effort", o.RefineEffort, &st.RefineEffort)
 	flag("auto_run", o.AutoRun, &st.DefaultAutoRun)

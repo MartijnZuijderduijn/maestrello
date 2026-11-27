@@ -95,8 +95,9 @@ func Serve(o Options, ready func(baseURL string)) error {
 		return err
 	}
 	app.loadUsage()
-	go app.refreshAccounts()     // never blocks startup; the header updates via SSE
-	go app.refreshAvailability() // likewise: which harness CLIs work on this machine
+	go app.pollPendingMerges(mergePollEvery) // also right now: queued merges survive a restart
+	go app.refreshAccounts()                 // never blocks startup; the header updates via SSE
+	go app.refreshAvailability()             // likewise: which harness CLIs work on this machine
 	if guard.Enabled() {
 		fmt.Printf("sandbox mode: confined to %s\n", guard.Root())
 	}

@@ -28,6 +28,7 @@ type Overrides struct {
 	MaxTurns       *int      `json:"max_turns,omitempty"`
 	MaxMinutes     *int      `json:"max_minutes,omitempty"`
 	PushDefault    *string   `json:"push_default,omitempty"`
+	MergeDirty     *string   `json:"merge_dirty,omitempty"`
 	RefineModel    *string   `json:"refine_model,omitempty"`
 	RefineEffort   *string   `json:"refine_effort,omitempty"`
 	AutoRun        *bool     `json:"auto_run,omitempty"`
@@ -60,6 +61,25 @@ type Project struct {
 	Counts     map[string]int `json:"counts,omitempty"` // cards per status; only in GET /api/projects
 	// Settings override the global settings for this project's cards (see layers.go).
 	Settings LayerSettings `json:"settings"`
+}
+
+// What Merge does when the original checkout has uncommitted changes to tracked files (setting merge_dirty).
+const (
+	MergeWorktree = "worktree" // merge without touching the working tree; refused when the merge touches a file I changed
+	MergeStash    = "stash"    // stash, merge, pop
+	MergeQueue    = "queue"    // keep the branch; the board merges once the checkout is clean
+	MergeRefuse   = "refuse"   // keep the branch, not merged
+)
+
+// ValidMergeDirty are the accepted merge_dirty values; "" means the default, MergeWorktree.
+var ValidMergeDirty = map[string]bool{"": true, MergeWorktree: true, MergeStash: true, MergeQueue: true, MergeRefuse: true}
+
+// MergeStrategy is the strategy s names, the default for "".
+func MergeStrategy(s string) string {
+	if s == "" {
+		return MergeWorktree
+	}
+	return s
 }
 
 var ValidPush = map[string]bool{"": true, "local": true, "merge": true, "push": true, "pr": true}
@@ -131,6 +151,9 @@ type CardRepo struct {
 	Error string `json:"error,omitempty"`
 	// Pushed is set once the branch is on origin, so a retry only needs the PR step.
 	Pushed bool `json:"pushed,omitempty"`
+	// MergePending is set by the queue strategy: the merge waits for a clean checkout and the board
+	// retries it. The repo stays open (empty Result) with its worktree and branch.
+	MergePending bool `json:"merge_pending,omitempty"`
 	// LocalSince is set for local work: a folder that is not a git repo, which the
 	// agent edits in place. It holds the RFC 3339 time the card started using it.
 	LocalSince string `json:"local_since,omitempty"`
@@ -170,6 +193,7 @@ type Settings struct {
 	DefaultMaxTurns       int    `json:"default_max_turns"`
 	DefaultMaxMinutes     int    `json:"default_max_minutes"`
 	DefaultPushDefault    string `json:"default_push_default"` // "" = decide at review
+	MergeDirty            string `json:"merge_dirty"`          // what Merge does on a dirty checkout: worktree (default), stash, queue or refuse
 	RefineModel           string `json:"refine_model"`
 	RefineEffort          string `json:"refine_effort"`
 	DefaultAutoRun        bool   `json:"default_auto_run"`        // new cards run straight after refinement
@@ -193,6 +217,7 @@ func DefaultSettings() Settings {
 		DefaultPermissionMode: "auto",
 		DefaultMaxTurns:       50,
 		DefaultMaxMinutes:     45,
+		MergeDirty:            MergeWorktree,
 		RefineModel:           "sonnet",
 		RefineEffort:          "low",
 		Harness:               DefaultHarness,

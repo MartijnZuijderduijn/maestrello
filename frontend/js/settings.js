@@ -4,6 +4,7 @@ import { readToolDefaults, settingsFields, toolDefaultsGrid } from "./forms.js";
 import { syncExclusive } from "./exclusive.js";
 import { harnessAvailability, harnessInfo, modelSelect } from "./harness.js";
 import { pathField } from "./picker.js";
+import { MERGE_DIRTY } from "./repoactions.js";
 import { cards, setOpenId } from "./state.js";
 import { projects } from "./projects.js";
 import { actions, button } from "./ui.js";
@@ -15,6 +16,8 @@ export async function openSettings() {
   openDrawer("Settings", `<label>Default root folder</label>${pathField("s-root", s.default_root_folder)}
     ${settingsFields({ harness: s.harness, model: s.default_model, effort: s.default_effort, permission_mode: s.default_permission_mode,
       max_turns: s.default_max_turns, max_minutes: s.default_max_minutes, push_default: s.default_push_default })}
+    <label>Merge into a checkout with uncommitted changes (<code>merge_dirty</code>; a project or kind can override it in the JSON below; the approve dialog can override it per repo)</label>
+    <select id="s-mergedirty">${MERGE_DIRTY.map(([v, l]) => `<option value="${v}" ${v === (s.merge_dirty || "worktree") ? "selected" : ""}>${v}: ${l}</option>`).join("")}</select>
     <label class="check"><input type="checkbox" id="s-autorun" ${s.default_auto_run ? "checked" : ""}> Auto-run after refinement by default</label>
     <label class="check"><input type="checkbox" id="s-skip" onchange="settingsRunFlagsChanged('skip')" ${s.default_skip_refinement ? "checked" : ""}> Skip refinement by default (new cards go straight to Ready with their own text as the prompt)</label>
     <label class="check"><input type="checkbox" id="s-automodel" onchange="settingsRunFlagsChanged('auto')" ${s.auto_model && !s.default_skip_refinement ? "checked" : ""}> Automatic model selection by default for new cards (each card can switch it: the refiner picks the smallest capable model and adapter, and the manual model is only the fallback)</label>
@@ -60,7 +63,7 @@ export async function saveSettings() {
     await api("PUT", "/api/settings", {
       auto_model: $("#s-automodel").checked, model_info: modelInfo, kinds,
       default_root_folder: $("#s-root").value, default_model: $("#f-model").value, default_effort: $("#f-effort").value,
-      default_permission_mode: $("#f-mode").value, default_max_turns: +$("#f-turns").value, default_max_minutes: +$("#f-minutes").value, default_push_default: $("#f-push").value,
+      default_permission_mode: $("#f-mode").value, default_max_turns: +$("#f-turns").value, default_max_minutes: +$("#f-minutes").value, default_push_default: $("#f-push").value, merge_dirty: $("#s-mergedirty").value,
       refine_model: $("#s-rmodel").value, refine_effort: $("#s-reffort").value, default_auto_run: $("#s-autorun").checked,
       default_skip_refinement: $("#s-skip").checked, default_tools: readToolDefaults(),
       harness: $("#f-harness").value,

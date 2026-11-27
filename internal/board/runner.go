@@ -696,6 +696,7 @@ func (a *App) Resume(id int64, message string) error {
 	if a.isWaiting(id) {
 		return fmt.Errorf("the card is already waiting for a folder")
 	}
+	a.store.ClearMergePending(id) // new work: the queued merge is no longer what I approved
 	card, err := a.update(id, func(c *model.Card) {
 		c.Status = model.StatusRunning
 		c.Activity = "resuming"

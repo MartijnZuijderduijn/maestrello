@@ -186,3 +186,42 @@ func TestSkipAndAutoModelExclusiveInLayers(t *testing.T) {
 		t.Error("layer with both accepted")
 	}
 }
+
+func TestResolveMergeDirty(t *testing.T) {
+	g := baseSettings()
+	if g.MergeDirty != model.MergeWorktree {
+		t.Fatalf("built-in default = %q", g.MergeDirty)
+	}
+	g.Kinds = map[string]model.Overrides{model.KindCode: {MergeDirty: sp(model.MergeRefuse)}}
+	proj := &model.LayerSettings{Overrides: model.Overrides{MergeDirty: sp(model.MergeStash)}}
+	if got, src := resolveLayers(g, nil, model.KindCode); got.MergeDirty != model.MergeRefuse || src["merge_dirty"] != LayerGlobalKind {
+		t.Errorf("global kind: %q from %q", got.MergeDirty, src["merge_dirty"])
+	}
+	if got, src := resolveLayers(g, proj, model.KindCode); got.MergeDirty != model.MergeStash || src["merge_dirty"] != LayerProject {
+		t.Errorf("project: %q from %q", got.MergeDirty, src["merge_dirty"])
+	}
+	proj.Kinds = map[string]model.Overrides{model.KindCode: {MergeDirty: sp(model.MergeQueue)}}
+	if got, src := resolveLayers(g, proj, ""); got.MergeDirty != model.MergeQueue || src["merge_dirty"] != LayerProjectKind {
+		t.Errorf("project kind: %q from %q", got.MergeDirty, src["merge_dirty"])
+	}
+}
+
+func TestValidateMergeDirty(t *testing.T) {
+	st := model.DefaultSettings()
+	for _, v := range []string{"", "worktree", "stash", "queue", "refuse"} {
+		st.MergeDirty = v
+		if err := Validate(st); err != nil {
+			t.Errorf("global %q: %v", v, err)
+		}
+		if err := ValidateLayer(model.LayerSettings{Overrides: model.Overrides{MergeDirty: sp(v)}}, "project"); err != nil {
+			t.Errorf("layer %q: %v", v, err)
+		}
+	}
+	st.MergeDirty = "force"
+	if Validate(st) == nil {
+		t.Error("global: invalid strategy accepted")
+	}
+	if ValidateLayer(model.LayerSettings{Kinds: map[string]model.Overrides{"code": {MergeDirty: sp("force")}}}, "project") == nil {
+		t.Error("layer: invalid strategy accepted")
+	}
+}

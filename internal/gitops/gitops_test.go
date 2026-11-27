@@ -217,3 +217,99 @@ func TestMergeHelpers(t *testing.T) {
 		t.Error("conflicted merge left changes behind")
 	}
 }
+
+// mergeFixture: main has a.txt, b.txt, c.txt; branch feat modifies a.txt, deletes c.txt and adds d.txt.
+func mergeFixture(t *testing.T) (*Git, string) {
+	t.Helper()
+	dir := testenv.Dir(t)
+	testenv.IsolateGit(t, dir)
+	repo := testenv.MakeRepo(t, dir, "svc")
+	for _, f := range []string{"a.txt", "b.txt", "c.txt"} {
+		os.WriteFile(filepath.Join(repo, f), []byte("base\n"), 0o644)
+	}
+	testenv.Git(t, repo, "add", "-A")
+	testenv.Git(t, repo, "commit", "-qm", "files")
+	testenv.Git(t, repo, "checkout", "-q", "-b", "feat")
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("feat\n"), 0o644)
+	os.WriteFile(filepath.Join(repo, "d.txt"), []byte("new\n"), 0o644)
+	testenv.Git(t, repo, "rm", "-q", "c.txt")
+	testenv.Git(t, repo, "add", "-A")
+	testenv.Git(t, repo, "commit", "-qm", "feat")
+	testenv.Git(t, repo, "checkout", "-q", "main")
+	guard, _ := sandbox.NewGuard(dir)
+	return &Git{guard: guard}, repo
+}
+
+func TestMergeNoCheckoutSyncsUntouchedFiles(t *testing.T) {
+	g, repo := mergeFixture(t)
+	os.WriteFile(filepath.Join(repo, "b.txt"), []byte("mine\n"), 0o644) // the merge does not touch b.txt
+	if err := g.MergeNoCheckout(context.Background(), repo, "main", "feat", "msg"); err != nil {
+		t.Fatal(err)
+	}
+	if got := testenv.Git(t, repo, "rev-parse", "main"); got != testenv.Git(t, repo, "rev-parse", "feat") {
+		t.Error("not a fast-forward")
+	}
+	for f, want := range map[string]string{"a.txt": "feat\n", "b.txt": "mine\n", "d.txt": "new\n"} {
+		if b, _ := os.ReadFile(filepath.Join(repo, f)); string(b) != want {
+			t.Errorf("%s = %q, want %q", f, b, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, "c.txt")); err == nil {
+		t.Error("deleted file still in the working tree")
+	}
+	if st := testenv.Git(t, repo, "status", "--porcelain"); st != "M b.txt" {
+		t.Errorf("status = %q", st)
+	}
+}
+
+func TestMergeNoCheckoutRefusesTrackedOverlap(t *testing.T) {
+	for _, f := range []string{"a.txt", "c.txt"} { // modified and deleted by the branch
+		g, repo := mergeFixture(t)
+		os.WriteFile(filepath.Join(repo, f), []byte("mine\n"), 0o644)
+		main := testenv.Git(t, repo, "rev-parse", "main")
+		err := g.MergeNoCheckout(context.Background(), repo, "main", "feat", "msg")
+		var overlap *DirtyOverlapError
+		if !errors.As(err, &overlap) || len(overlap.Files) != 1 || overlap.Files[0] != f {
+			t.Fatalf("%s: err = %v", f, err)
+		}
+		if testenv.Git(t, repo, "rev-parse", "main") != main {
+			t.Errorf("%s: main moved", f)
+		}
+	}
+}
+
+func TestMergeNoCheckoutRefusesBaseCheckedOutElsewhere(t *testing.T) {
+	g, repo := mergeFixture(t)
+	testenv.Git(t, repo, "checkout", "-q", "feat")
+	wt := filepath.Join(filepath.Dir(repo), "other-wt")
+	testenv.Git(t, repo, "worktree", "add", "-q", wt, "main")
+	err := g.MergeNoCheckout(context.Background(), repo, "main", "feat", "msg")
+	if err == nil || !strings.Contains(err.Error(), "checked out in") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestStashRestoreConflictKeepsStash(t *testing.T) {
+	g, repo := mergeFixture(t)
+	ctx := context.Background()
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("mine\n"), 0o644)
+	sha, err := g.StashPush(ctx, repo, "test")
+	if err != nil || sha == "" {
+		t.Fatalf("StashPush = %q, %v", sha, err)
+	}
+	if sha2, _ := g.StashPush(ctx, repo, "nothing"); sha2 != "" {
+		t.Error("stashed a clean tree")
+	}
+	if err := g.Merge(ctx, repo, "feat", "msg"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.StashRestore(ctx, repo, sha); err == nil {
+		t.Fatal("restore did not conflict")
+	}
+	if g.StashRef(ctx, repo, sha) != "stash@{0}" {
+		t.Error("stash was dropped")
+	}
+	if st := testenv.Git(t, repo, "status", "--porcelain"); st != "" {
+		t.Errorf("not clean: %q", st)
+	}
+}
