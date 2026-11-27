@@ -261,5 +261,22 @@ a.ws-chip.pr:hover { text-decoration: underline; }
 .ws-tree { overflow-x: hidden; }
 .trash-list { list-style: none; margin: 0; padding: 0; }
 .trash-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
-.trash-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trash-row { padding: 6px 8px; cursor: pointer; border-radius: 6px; transition: background-color var(--t-fast) var(--ease-out); }
+.trash-row:hover { background: color-mix(in oklab, var(--muted) 12%, transparent); }
+.trash-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.trash-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.trash-meta { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; }
+.trash-agent { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.trash-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trash-row .av.grave { width: 36px; height: 36px; }
+.av.grave .stone { fill: #b4b8bd; stroke: #5d6168; stroke-width: 1.3; stroke-linejoin: round; }
+.av.grave .engr { fill: none; stroke: #5d6168; stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; }
+.av.grave .crack { fill: none; stroke: #5d6168; stroke-width: .8; stroke-linecap: round; }
+.av.grave .moss { fill: #7fa86a; stroke: none; opacity: .85; }
+.av.grave .grass { stroke: #5f8a4f; stroke-width: 1.6; stroke-linecap: round; }
+@media (prefers-color-scheme: dark) {
+  .av.grave .stone { fill: #6b7078; stroke: #2e3136; }
+  .av.grave .engr, .av.grave .crack { stroke: #33363b; }
+  .av.grave .moss { fill: #4f7a43; }
+}
 .trash-note { color: var(--muted); }
