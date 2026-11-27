@@ -121,7 +121,7 @@ function renderDetail() {
 }
 
 // Functions, not constants: the module cycle through ui.js may run this file before ui.js.
-const delBtn = () => button("Delete", "deleteCard()", "danger"), discardBtn = () => button("Discard", "discard()", "danger");
+const delBtn = () => button("Archive", "archiveCard()") + button("Delete", "deleteCard()", "danger"), discardBtn = () => button("Discard", "discard()", "danger");
 const stop = (c) => confirmButton("Stop", "Stop the agent? The card goes to Failed.", `act(${c.id}, 'stop')`);
 // The summary, report or plan the agent left.
 function summarySection(c) {

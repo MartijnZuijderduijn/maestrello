@@ -122,6 +122,7 @@ func OpenStore(path string) (*Store, error) {
 	db.Exec(`ALTER TABLE cards ADD COLUMN deep_refinement INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE cards ADD COLUMN auto_model INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE cards ADD COLUMN context TEXT NOT NULL DEFAULT ''`)
+	db.Exec(`ALTER TABLE cards ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`)
 	st := &Store{db: db}
 	if err := st.migrateProjects(); err != nil {
 		return nil, fmt.Errorf("migrate projects: %w", err)
@@ -131,14 +132,14 @@ func OpenStore(path string) (*Store, error) {
 
 const cardCols = `id, title, description, root_folder, project_id, restrict_refinement, auto_run, skip_refinement, deep_refinement, title_auto, auto_model, model, effort,
 	permission_mode, harness, kind, tools, max_turns, max_minutes, push_default, refined_prompt, refine_notes, status, session_id, summary, plan_tasks, context,
-	fail_reason, warning, activity, waiting_on, turns_used, cost_usd, created_at, updated_at`
+	fail_reason, warning, activity, waiting_on, turns_used, cost_usd, created_at, updated_at, archived`
 
 func scanCard(row interface{ Scan(...any) error }) (*model.Card, error) {
 	var c model.Card
 	var planTasks, tools, contextJSON string
 	err := row.Scan(&c.ID, &c.Title, &c.Description, &c.RootFolder, &c.ProjectID, &c.RestrictRefinement, &c.AutoRun, &c.SkipRefinement, &c.DeepRefinement, &c.TitleAuto, &c.AutoModel, &c.Model,
 		&c.Effort, &c.PermissionMode, &c.Harness, &c.Kind, &tools, &c.MaxTurns, &c.MaxMinutes, &c.PushDefault, &c.RefinedPrompt, &c.RefineNotes, &c.Status,
-		&c.SessionID, &c.Summary, &planTasks, &contextJSON, &c.FailReason, &c.Warning, &c.Activity, &c.WaitingOn, &c.TurnsUsed, &c.CostUSD, &c.CreatedAt, &c.UpdatedAt)
+		&c.SessionID, &c.Summary, &planTasks, &contextJSON, &c.FailReason, &c.Warning, &c.Activity, &c.WaitingOn, &c.TurnsUsed, &c.CostUSD, &c.CreatedAt, &c.UpdatedAt, &c.Archived)
 	if err != nil {
 		return nil, err
 	}
@@ -219,11 +220,11 @@ func (s *Store) SaveCard(c *model.Card) error {
 	}
 	_, err := s.db.Exec(`UPDATE cards SET title=?, description=?, root_folder=?, project_id=?, restrict_refinement=?, auto_run=?, skip_refinement=?, deep_refinement=?, title_auto=?, auto_model=?, model=?,
 		effort=?, permission_mode=?, harness=?, kind=?, tools=?, context=?, max_turns=?, max_minutes=?, push_default=?, refined_prompt=?, refine_notes=?,
-		status=?, session_id=?, summary=?, plan_tasks=?, fail_reason=?, warning=?, activity=?, waiting_on=?, turns_used=?, cost_usd=?, updated_at=?
+		status=?, session_id=?, summary=?, plan_tasks=?, fail_reason=?, warning=?, activity=?, waiting_on=?, turns_used=?, cost_usd=?, updated_at=?, archived=?
 		WHERE id=?`,
 		c.Title, c.Description, c.RootFolder, c.ProjectID, c.RestrictRefinement, c.AutoRun, c.SkipRefinement, c.DeepRefinement, c.TitleAuto, c.AutoModel, c.Model, c.Effort, c.PermissionMode,
 		c.Harness, c.Kind, strings.Join(c.Tools, ","), contextJSON(c.Context), c.MaxTurns, c.MaxMinutes, c.PushDefault, c.RefinedPrompt, c.RefineNotes, c.Status, c.SessionID,
-		c.Summary, planTasksJSON(c.PlanTasks), c.FailReason, c.Warning, c.Activity, c.WaitingOn, c.TurnsUsed, c.CostUSD, c.UpdatedAt, c.ID)
+		c.Summary, planTasksJSON(c.PlanTasks), c.FailReason, c.Warning, c.Activity, c.WaitingOn, c.TurnsUsed, c.CostUSD, c.UpdatedAt, c.Archived, c.ID)
 	return err
 }
 
@@ -237,8 +238,14 @@ func (s *Store) GetCard(id int64) (*model.Card, error) {
 	return c, err
 }
 
-func (s *Store) ListCards() ([]*model.Card, error) {
-	rows, err := s.db.Query(`SELECT ` + cardCols + ` FROM cards ORDER BY id`)
+// ListCards returns the cards on the board; archived cards are left out (see ListArchivedCards).
+func (s *Store) ListCards() ([]*model.Card, error) { return s.listCards(false) }
+
+// ListArchivedCards returns the archived cards, in id order.
+func (s *Store) ListArchivedCards() ([]*model.Card, error) { return s.listCards(true) }
+
+func (s *Store) listCards(archived bool) ([]*model.Card, error) {
+	rows, err := s.db.Query(`SELECT `+cardCols+` FROM cards WHERE archived=? ORDER BY id`, archived)
 	if err != nil {
 		return nil, err
 	}

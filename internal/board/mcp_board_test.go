@@ -53,7 +53,7 @@ func TestBoardMCPProtocol(t *testing.T) {
 	}
 
 	names := toolNames(boardRPC(t, app, "tools/list", nil))
-	want := []string{"list_projects", "list_cards", "get_card", "create_card", "update_card", "move_card", "answer_input", "approve_card", "discard_card", "send_back_card"}
+	want := []string{"list_projects", "list_cards", "get_card", "create_card", "update_card", "move_card", "answer_input", "approve_card", "discard_card", "archive_card", "unarchive_card", "send_back_card"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("board tools = %v", names)
 	}

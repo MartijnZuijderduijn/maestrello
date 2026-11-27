@@ -106,7 +106,7 @@ func (s *Store) DeleteProject(id int64) error {
 
 // ProjectCounts returns the number of cards per status for each project id.
 func (s *Store) ProjectCounts() (map[int64]map[string]int, error) {
-	rows, err := s.db.Query(`SELECT project_id, status, COUNT(*) FROM cards GROUP BY project_id, status`)
+	rows, err := s.db.Query(`SELECT project_id, status, COUNT(*) FROM cards WHERE archived=0 GROUP BY project_id, status`)
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import { setHarnesses } from "./harness.js";
 import { projects, renderProjects, sel, setProjects, setSelIds } from "./projects.js";
 import { cards, detail, openId, setCards } from "./state.js";
 import { $ } from "./util.js";
+import { trashTouched } from "./trash.js";
 import { workspaceTouched } from "./workspace.js";
 
 export async function api(method, path, body) {
@@ -32,7 +33,7 @@ function scheduleDetailRefresh() {
 export function connect() {
   const es = new EventSource("/api/events");
   es.addEventListener("card", (m) => {
-    const c = JSON.parse(m.data); cards.set(c.id, c); renderBoard(); workspaceTouched(c.id);
+    const c = JSON.parse(m.data); cards.set(c.id, c); renderBoard(); workspaceTouched(c.id); trashTouched();
     if (c.id === openId) scheduleDetailRefresh();
   });
   es.addEventListener("harnesses", async () => { try { setHarnesses(await api("GET", "/api/harnesses")); } catch (e) {} });
@@ -41,7 +42,7 @@ export function connect() {
   es.addEventListener("project_deleted", (m) => {
     const id = JSON.parse(m.data).id; projects.delete(id); setSelIds(sel.filter((x) => x !== id)); renderProjects(); renderBoard();
   });
-  es.addEventListener("deleted", (m) => { const id = JSON.parse(m.data).id; workspaceTouched(id); cards.delete(id); renderBoard(); });
+  es.addEventListener("deleted", (m) => { const id = JSON.parse(m.data).id; workspaceTouched(id); cards.delete(id); renderBoard(); trashTouched(); });
   es.addEventListener("event", (m) => {
     const e = JSON.parse(m.data);
     workspaceTouched(e.card_id);

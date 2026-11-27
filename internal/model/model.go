@@ -126,6 +126,7 @@ type Card struct {
 	PlanTasks          []PlanTask    `json:"plan_tasks"` // the tasks a plan card proposes; approving creates the cards
 	FailReason         string        `json:"fail_reason"`
 	Warning            string        `json:"warning"`
+	Archived           bool          `json:"archived"` // kept in the trash: hidden from the board and every normal listing, restorable
 	Activity           string        `json:"activity"`
 	WaitingOn          int64         `json:"waiting_on,omitempty"` // card holding the local folder this card waits for
 	TurnsUsed          int           `json:"turns_used"`
