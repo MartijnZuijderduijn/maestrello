@@ -259,7 +259,6 @@ a.ws-chip.pr:hover { text-decoration: underline; }
 .ws-toggle .meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
 .ws-project > .ws-toggle .ws-name { flex: none; max-width: 60%; }
 .ws-tree { overflow-x: hidden; }
-.card .del.arch { font-size: 13px; line-height: 1.7; }
 .trash-list { list-style: none; margin: 0; padding: 0; }
 .trash-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .trash-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -67,6 +67,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /api/cards", a.handleListCards)
 	mux.HandleFunc("POST /api/cards", a.handleCreateCard)
 	mux.HandleFunc("DELETE /api/cards", a.handleClearCards)
+	mux.HandleFunc("POST /api/cards/archive", a.handleArchiveCards)
 	mux.HandleFunc("POST /api/cards/run", a.handleRunCards)
 	mux.HandleFunc("POST /api/cards/refine", a.handleRefineCards)
 	mux.HandleFunc("GET /api/cards/{id}", a.handleGetCard)
@@ -344,6 +345,38 @@ func (a *App) handleClearCards(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]int{"deleted": n})
+}
+
+// handleArchiveCards archives every Done card (POST /api/cards/archive?status=done), the counterpart
+// of handleClearCards that keeps the cards in the trash. Same rules: only status=done, optional project.
+func (a *App) handleArchiveCards(w http.ResponseWriter, r *http.Request) {
+	if st := r.URL.Query().Get("status"); st != model.StatusDone {
+		writeErr(w, errors.New("only status=done can be archived"))
+		return
+	}
+	project, err := projectParam(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	done, err := a.store.CardsWithStatus(model.StatusDone)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	n := 0
+	for _, c := range cardsInProject(done, project) {
+		switch err := a.archiveDoneCard(c.ID); {
+		case err == nil:
+			n++
+		case errors.Is(err, errNotDone), errors.Is(err, store.ErrNotFound):
+			// Left Done (or was deleted) since we listed it: leave it alone.
+		default:
+			writeErr(w, err)
+			return
+		}
+	}
+	writeJSON(w, 200, map[string]int{"archived": n})
 }
 
 // handleRunCards starts every Ready card, and every Todo card that skips refinement

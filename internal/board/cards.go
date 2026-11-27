@@ -482,6 +482,19 @@ func (a *App) archiveCard(id int64, stop bool) error {
 	return nil
 }
 
+// archiveDoneCard archives a card only if it is still in Done (used by archive-all, so a card that
+// moved on since it was listed is left alone, as deleteCard's onlyDone does for Clear).
+func (a *App) archiveDoneCard(id int64) error {
+	c, err := a.store.GetCard(id)
+	if err != nil {
+		return err
+	}
+	if c.Status != model.StatusDone {
+		return errNotDone
+	}
+	return a.archiveCard(id, false)
+}
+
 // unarchiveCard restores an archived card to the board (in Done, where archiving left it).
 func (a *App) unarchiveCard(id int64) error {
 	c, err := a.store.GetCard(id)

@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { choose } from "./choice.js";
 import { kindOf } from "./kinds.js";
 import { avatarHTML } from "./avatars.js";
 import { loadDetail, openCard } from "./card.js";
@@ -19,7 +20,7 @@ function columnsHTML(p, h) {
   const mine = projectCards(p.id);
   return `<div class="lane-cols"${h ? ` style="height:${h}px"` : ""}>` + COLUMNS.map(([key, name]) => {
     const list = mine.filter((c) => c.status === key).sort((a, b) => key === "done" ? b.id - a.id : a.id - b.id);
-    const clear = key === "done" && list.length ? `<button class="clear" title="Delete every card in Done${projects.size > 1 ? " of " + esc(p.name) : ""}" onclick="clearDone(event, ${p.id})">Clear</button>`
+    const clear = key === "done" && list.length ? `<button class="clear" title="Delete or archive every card in Done${projects.size > 1 ? " of " + esc(p.name) : ""}" onclick="clearDone(event, ${p.id})">Clear</button>`
       : key === "ready" && list.length ? `<button class="clear start" title="Run every card in Ready (and Todo cards that skip refinement)${projects.size > 1 ? " of " + esc(p.name) : ""}" onclick="startAllReady(event, ${p.id})">Start all</button>` : "";
     const refineAll = key === "todo" && list.some((c) => !c.skip_refinement && kindOf(c) !== "chat") ? `<button class="clear start" title="Refine every Todo card${projects.size > 1 ? " of " + esc(p.name) : ""}" onclick="refineAllTodo(event, ${p.id})">Refine all</button>` : "";
     const add = key === "todo" ? `<button class="clear add" title="New card in ${esc(p.name)}" onclick="openNew(${p.id})">New card</button>` : "";
@@ -107,8 +108,7 @@ function cardHTML(c) {
   return `<div class="card ${c.warning ? "warn" : ""}${enterClass(c)}${selected.has(c.id) ? " selected" : ""}" draggable="true" tabindex="0" data-id="${c.id}"
     onmousedown="if (event.shiftKey) event.preventDefault()"
     ondragstart="dragStart(event)" ondragend="dragEnd()" onclick="cardClick(event, ${c.id})" onkeydown="cardKey(event, ${c.id})">
-    <button class="del" title="Delete card" aria-label="Delete card #${c.id}" onpointerdown="blockDrag()" onclick="deleteDoneCard(event, ${c.id})">×</button>
-    <button class="del arch" title="Archive card (restore it from the trash)" aria-label="Archive card #${c.id}" onpointerdown="blockDrag()" onclick="archiveBoardCard(event, ${c.id})">▣</button>
+    <button class="del" title="Delete or archive card" aria-label="Delete or archive card #${c.id}" onpointerdown="blockDrag()" onclick="deleteDoneCard(event, ${c.id})">×</button>
     <div class="th">${avatarHTML(c, live)}<div class="t">${esc(c.title)}</div></div>
     <div class="m">#${c.id}${kindMeta(c)} · <span title="${esc(c.harness)}">${harnessIcon(c.harness)}${esc(c.harness)}</span> · ${esc(c.model)} · ${esc(c.effort)} · ${esc(c.permission_mode)}${c.turns_used ? ` · ${c.turns_used} turns` : ""}${c.auto_run && (c.status === "todo" || c.status === "refining" || c.status === "ready") ? ` · <span title="Runs automatically after refinement">auto</span>` : ""}${c.skip_refinement ? ` · <span title="Refinement was skipped: the card text is the prompt">unrefined</span>` : ""}</div>
     ${c.waiting_on ? `<div class="waiting" title="${esc(c.activity || "")}"><span>waiting on #${c.waiting_on}</span></div>` : ""}
@@ -120,27 +120,29 @@ function cardHTML(c) {
 // removes board data, never branches. The "deleted" SSE events update the board.
 let dragBlocked = false; // pressing a card's delete button must not start a drag
 for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, () => dragBlocked = false);
-export const deleteDoneCard = (e, id) => removeCard(e, id, false);
-// Archiving takes the card off the board the same way, but keeps it in the trash.
-export const archiveBoardCard = (e, id) => removeCard(e, id, true);
-async function removeCard(e, id, archive) {
+export async function deleteDoneCard(e, id) {
   e.stopPropagation();
   dragBlocked = false;
   const c = cards.get(id);
   if (!c) return;
+  if (c.status === "refining") return alert("The card is being refined; wait for it to finish.");
   // A running card has a live agent (unless it only waits for a folder); a card needing input
   // has one too. Other cards with work keep it as branches; their worktrees are removed.
   const agent = (c.status === "running" && !c.waiting_on) || c.status === "needs_input";
-  const verb = archive ? "archive" : "delete", Verb = archive ? "Archive" : "Delete";
-  const msg = c.status === "refining" ? null
-    : agent ? `The agent is still running. Stop it and ${verb} the card? Its branches are kept.`
-    : c.status === "running" ? `Take the card out of the queue and ${verb} it?`
-    : c.status === "todo" || c.status === "ready" ? `${Verb} this card?`
-    : `${Verb} this card? Its worktrees are removed; its branches are kept.`;
-  if (msg === null) return alert("The card is being refined; wait for it to finish.");
-  if (!confirm(msg)) return;
+  const body = [
+    agent ? "The agent is still running and will be stopped. Its branches are kept."
+      : c.status === "running" ? "The card is taken out of the queue."
+      : c.status === "todo" || c.status === "ready" ? ""
+      : "Its worktrees are removed; its branches are kept.",
+    "Delete removes the card for good. Archive hides it from the board; restore it from the trash.",
+  ];
+  const choice = await choose({ title: `Remove card #${c.id}?`, body, choices: [
+    { label: "Delete", value: "delete", variant: "danger" },
+    { label: "Archive", value: "archive", variant: "primary" },
+  ] });
+  if (!choice) return;
   try {
-    if (archive) await api("POST", `/api/cards/${id}/archive`, { stop: c.status !== "done" });
+    if (choice === "archive") await api("POST", `/api/cards/${id}/archive`, { stop: c.status !== "done" });
     else await api("DELETE", `/api/cards/${id}${c.status === "done" ? "" : "?stop=1"}`);
     if (openId === id) closeDrawer();
   } catch (err) { alert(err.message); }
@@ -148,10 +150,21 @@ async function removeCard(e, id, archive) {
 export async function clearDone(e, pid) {
   e.stopPropagation();
   const n = projectCards(pid).filter((c) => c.status === "done").length;
-  if (!confirm(`Delete all ${n} done card${n === 1 ? "" : "s"}? Their branches are kept.`)) return;
+  const s = n === 1 ? "" : "s";
+  const choice = await choose({ title: `Clear ${n} done card${s}?`, body: [
+    "Branches are kept either way.",
+    `Delete all removes the card${s} for good. Archive all hides ${n === 1 ? "it" : "them"} from the board; restore from the trash.`,
+  ], choices: [
+    { label: `Delete all ${n}`, value: "delete", variant: "danger" },
+    { label: `Archive all ${n}`, value: "archive", variant: "primary" },
+  ] });
+  if (!choice) return;
   const openDone = typeof openId === "number" && cards.get(openId)?.status === "done";
-  try { await api("DELETE", "/api/cards?status=done&project=" + pid); if (openDone) closeDrawer(); }
-  catch (err) { alert(err.message); }
+  try {
+    if (choice === "archive") await api("POST", "/api/cards/archive?status=done&project=" + pid);
+    else await api("DELETE", "/api/cards?status=done&project=" + pid);
+    if (openDone) closeDrawer();
+  } catch (err) { alert(err.message); }
 }
 
 // Start all: run every Ready card, as if Run had been pressed on each. The "card" SSE

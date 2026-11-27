@@ -108,3 +108,58 @@ func TestDeleteArchivedCard(t *testing.T) {
 		t.Errorf("card still stored after delete")
 	}
 }
+
+func TestArchiveAllDone(t *testing.T) {
+	dir := testenv.Dir(t)
+	app := newTestApp(t, dir)
+	a, b := mkProject(t, app, "A", dir), mkProject(t, app, "B", dir)
+	mk := func(status string, p *model.Project) *model.Card {
+		c := cardWithStatus(t, app, dir, status)
+		inProject(t, app, c, p)
+		return c
+	}
+	doneA1, doneA2 := mk(model.StatusDone, a), mk(model.StatusDone, a)
+	todoA, doneB := mk(model.StatusTodo, a), mk(model.StatusDone, b)
+	url := app.baseURL + "/api/cards/archive"
+
+	// Only status=done is accepted; nothing is archived otherwise.
+	for _, q := range []string{"?status=todo", "", "?status=review", "?status=Done"} {
+		var e map[string]string
+		if code := sendJSON(t, "POST", url+q, nil, &e); code != 400 || e["error"] == "" {
+			t.Errorf("POST /api/cards/archive%s = %d %v, want 400", q, code, e)
+		}
+	}
+	if n := len(cardIDs(t, app)); n != 4 {
+		t.Fatalf("rejected requests archived cards: %d left on the board", n)
+	}
+
+	var got map[string]int
+	if code := sendJSON(t, "POST", url+"?status=done&project="+itoa(a.ID), nil, &got); code != 200 || got["archived"] != 2 {
+		t.Fatalf("archive all = %d %v, want 200 {archived:2}", code, got)
+	}
+	ids := cardIDs(t, app)
+	if len(ids) != 2 || !ids[todoA.ID] || !ids[doneB.ID] {
+		t.Errorf("board cards = %v, want #%d and #%d", ids, todoA.ID, doneB.ID)
+	}
+	var trash []model.Card
+	if code := sendJSON(t, "GET", app.baseURL+"/api/cards?archived=1", nil, &trash); code != 200 || len(trash) != 2 {
+		t.Fatalf("trash = %d %+v", code, trash)
+	}
+	for _, c := range trash {
+		if c.ID != doneA1.ID && c.ID != doneA2.ID || !c.Archived {
+			t.Errorf("unexpected trash card %+v", c)
+		}
+	}
+	// Archived cards keep their events, and a second run finds nothing left in A.
+	if ev, _ := app.store.Events(doneA1.ID, 100); len(ev) == 0 {
+		t.Errorf("archived card lost its events")
+	}
+	got = nil
+	if code := sendJSON(t, "POST", url+"?status=done&project="+itoa(a.ID), nil, &got); code != 200 || got["archived"] != 0 {
+		t.Errorf("repeat = %d %v, want {archived:0}", code, got)
+	}
+	// Without a project it archives the rest.
+	if code := sendJSON(t, "POST", url+"?status=done", nil, &got); code != 200 || got["archived"] != 1 {
+		t.Errorf("all projects = %d %v, want {archived:1}", code, got)
+	}
+}
