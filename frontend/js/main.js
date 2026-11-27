@@ -10,17 +10,18 @@ import { answer, approve, chatKey, deleteCard, discard, planSelection, replyChat
 import { browsePath, pickPath } from "./picker.js";
 import { openSettings, projectSettingsChanged, saveProjectSettings, saveSettings, settingsRunFlagsChanged } from "./settings.js";
 import { $ } from "./util.js";
-import { restoreWorkspace, toggleWorkspace } from "./workspace.js";
+import { initPages, setPage, toggleNav } from "./pages.js";
+import { restoreWorkspace } from "./workspace.js";
 
 // The markup uses inline on*= handlers, which look their functions up on window.
-Object.assign(window, { settingsRunFlagsChanged, refineAllTodo, autoModelChanged, act, addContextPick, addContextTyped, removeContext, answer, approve, blockDrag, browsePath, cardClick, cardKey, chatKey, clearDone, closeDrawer, createCard, createProject, deleteCard, deleteDoneCard, discard, dragEnd, dragLeave, dragOver, dragStart, dropCard, harnessChanged, kindChanged, newPromptKey, openCard, openNew, openNewProject, openEditProject, saveProject, openSettings, pickPath, planSelection, projectChanged, projectSettingsChanged, saveProjectSettings, recheckHarnesses, refreshAcct, replyChat, saveAgent, saveCard, saveReady, saveSettings, sendBack, setSel, skipChanged, startAllReady, toggleAcct, toggleLane, toggleProj, toggleProject, toggleWorkspace });
+Object.assign(window, { settingsRunFlagsChanged, refineAllTodo, autoModelChanged, act, addContextPick, addContextTyped, removeContext, answer, approve, blockDrag, browsePath, cardClick, cardKey, chatKey, clearDone, closeDrawer, createCard, createProject, deleteCard, deleteDoneCard, discard, dragEnd, dragLeave, dragOver, dragStart, dropCard, harnessChanged, kindChanged, newPromptKey, openCard, openNew, openNewProject, openEditProject, saveProject, openSettings, pickPath, planSelection, projectChanged, projectSettingsChanged, saveProjectSettings, recheckHarnesses, refreshAcct, replyChat, saveAgent, saveCard, saveReady, saveSettings, sendBack, setSel, skipChanged, startAllReady, toggleAcct, toggleLane, toggleProj, toggleProject, setPage, toggleNav });
 
 showBoardSkeleton();
 (async () => {
   try {
     const info = await api("GET", "/api/info");
     if (info.sandbox_root) { const s = $("#sandbox"); s.hidden = false; s.textContent = "sandbox: " + info.sandbox_root; }
-    loadSel();
+    loadSel(); initPages();
     loadAcct();
     try { const m = await api("GET", "/api/models"); if (m.length) setModels(m); } catch (e) {}
     try { const h = await api("GET", "/api/harnesses"); if (h.length) setHarnesses(h); } catch (e) {}

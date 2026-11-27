@@ -96,7 +96,9 @@ Folder and file choices (the root-folder **Browse…** buttons and **Add folder�
 
 ### Projects
 
-Cards are grouped into projects: a named board with a root folder. Pick what to show with the project button in the header: one project looks like the plain board, several show one swimlane per project (collapsible), each with its own Clear and Start all. The selection is remembered and lives in the URL (`#p=1,3`), so a view can be bookmarked. "New project…" asks for a name and root folder; new cards in a project start with that root folder, which you can still change per card. A project can only be deleted when it has no cards. Existing boards are migrated on first start: one project per distinct root folder. Over HTTP see `/api/projects` and `?project=<id>`; over MCP see `list_projects` and the `project`/`project_id` arguments.
+Cards are grouped into projects: a named board with a root folder. Pick what to show with the project button in the header: one project looks like the plain board, several show one swimlane per project (collapsible), each with its own Clear and Start all. The selection is remembered and lives in the URL (`#p=1,3`), so a view can be bookmarked.
+
+A collapsible navigation on the left lists the pages: Board (the kanban, the default) and Workspace (a placeholder for now). It shows icons only when collapsed (remembered per browser; on narrow screens it starts collapsed and expands over the content). The page is in the URL hash before the selection (`#workspace&p=1,3`; no page means the board, old `#p=` links still work), and back/forward switch pages. "New project…" asks for a name and root folder; new cards in a project start with that root folder, which you can still change per card. A project can only be deleted when it has no cards. Existing boards are migrated on first start: one project per distinct root folder. Over HTTP see `/api/projects` and `?project=<id>`; over MCP see `list_projects` and the `project`/`project_id` arguments.
 
 ### Using the board to improve the board
 

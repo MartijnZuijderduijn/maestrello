@@ -17,7 +17,7 @@ export function pickPath({ mode = "dir", start = "", title = "" } = {}) {
     const st = { cur: "", parent: "", seq: 0, hidden: false, closeTimer: null };
     const lastFocus = document.activeElement;
     // Everything behind the picker goes inert; remember what already was so it is restored exactly.
-    const bg = [$("header"), $("#board"), $("#overlay")].map((el) => [el, el.inert]);
+    const bg = [$("header"), $("#shell"), $("#overlay")].map((el) => [el, el.inert]);
     root.innerHTML = `<div class="picker-bg"></div>
       <section class="picker-box" role="dialog" aria-modal="true" aria-labelledby="picker-title" tabindex="-1">
         <div class="modal-head"><h3 id="picker-title"></h3><button class="close" type="button" data-x aria-label="Cancel">×</button></div>
