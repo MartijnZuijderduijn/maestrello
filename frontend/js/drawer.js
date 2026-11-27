@@ -7,7 +7,7 @@ import { $, esc } from "./util.js";
 // moves focus and resets scroll when the modal goes from closed to open.
 let closeTimer = null, lastFocus = null;
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-function setBackgroundInert(on) { for (const el of [$("header"), $("#board")]) el.inert = on; }
+function setBackgroundInert(on) { for (const el of [$("header"), $("#shell")]) el.inert = on; }
 // Open/closed state of the detail sections, per card id and section key; survives live re-renders.
 const secState = new Map();
 const secOpen = (id, key, def) => secState.get(id)?.get(key) ?? def;

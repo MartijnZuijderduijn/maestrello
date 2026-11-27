@@ -57,7 +57,25 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px
 .check.task input { margin-top: 4px; }
 .check.task pre { margin: 4px 0 0; }
 
-.board { padding: 12px 16px; overflow-y: auto; height: calc(100vh - 57px); box-sizing: border-box; }
+.shell { display: flex; position: relative; height: calc(100vh - 57px); }
+.pages { flex: 1; min-width: 0; height: 100%; }
+.page { padding: 12px 16px; overflow-y: auto; height: 100%; box-sizing: border-box; }
+.board { padding: 12px 16px; overflow-y: auto; height: 100%; box-sizing: border-box; }
+.board[hidden], .page[hidden] { display: none; }
+/* Left nav: icons only when collapsed. Under 700px it keeps a 48px rail and the expanded list overlays the page. */
+nav#nav { flex: none; width: 176px; position: relative; z-index: 6; transition: width var(--t-med) var(--ease-out); }
+nav#nav.collapsed { width: 48px; }
+nav .nav-in { box-sizing: border-box; height: 100%; width: 100%; overflow: hidden; display: flex; flex-direction: column; gap: 2px; padding: 8px 6px; background: var(--panel); border-right: 1px solid var(--border); }
+nav button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 9px; border-color: transparent; background: none; color: var(--muted); white-space: nowrap; text-align: left; }
+nav button:hover, nav button:focus-visible { color: var(--text); border-color: var(--border); }
+nav button svg { flex: none; }
+nav button[aria-current="page"] { color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, var(--panel)); border-color: color-mix(in oklab, var(--accent) 40%, transparent); }
+nav .nav-toggle { margin-bottom: 6px; }
+nav.collapsed .nav-label { display: none; }
+@media (max-width: 700px) {
+  nav#nav, nav#nav.collapsed { width: 48px; }
+  nav#nav:not(.collapsed) .nav-in { position: absolute; inset: 0 auto 0 0; width: 176px; box-shadow: var(--shadow); }
+}
 .lane-cols { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(230px, 1fr); gap: 10px; overflow-x: auto; }
 .board.single .lane-cols { height: 100%; }
 .board.multi .lane-cols { height: min(520px, 70vh); }
@@ -201,11 +219,7 @@ body.resizing * { cursor: row-resize !important; }
 .edit-proj { background: none; border: 0; padding: 0 4px; color: var(--muted); cursor: pointer; font-size: 13px; }
 .edit-proj:hover { color: var(--text); }
 
-/* ---------- workspace panel ---------- */
-aside.workspace { position: fixed; top: 57px; right: 0; bottom: 0; width: var(--ws-w, 380px); max-width: 100vw; box-sizing: border-box; overflow-y: auto; padding: 12px 14px; background: var(--panel); border-left: 1px solid var(--border); box-shadow: var(--shadow); z-index: 4; font-size: 13px; }
-body.ws-open main.board, body.ws-open .board { margin-right: var(--ws-w, 380px); }
-header button.ws-btn { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-.ws-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, var(--panel)); }
+/* ---------- workspace page (ws-* classes are reworked by the Workspace page) ---------- */
 .ws-head { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; }
 .ws-entry { margin: 0 0 12px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
 .ws-path { display: block; min-width: 0; font: 600 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -230,7 +244,3 @@ header button.ws-btn { display: inline-flex; align-items: center; gap: 6px; flex
 .ws-lease.stale { border: 1px dashed var(--border); border-radius: 4px; padding: 0 5px; opacity: .8; }
 .ws-wait { color: var(--warn); font-size: 12px; }
 .ws-empty { padding: 24px 8px; text-align: center; color: var(--muted); }
-@media (max-width: 899px) {
-  aside.workspace { width: 100vw; }
-  body.ws-open main.board, body.ws-open .board { margin-right: 0; }
-}

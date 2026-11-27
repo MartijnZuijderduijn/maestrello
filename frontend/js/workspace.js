@@ -15,15 +15,9 @@ let error = "";
 let seq = 0, debounce = 0, poll = 0;
 
 function applyOpen() {
-  document.body.classList.toggle("ws-open", open);
   const el = $("#workspace"); if (el) el.hidden = !open;
-  const b = $("#ws-btn"); if (b) b.setAttribute("aria-pressed", String(open));
   clearInterval(poll); poll = 0;
   if (open) poll = setInterval(() => { if (document.visibilityState === "visible" && shownPid != null) fetchWorkspace(shownPid); }, POLL_MS);
-}
-export function toggleWorkspace() {
-  open = !open; lsSet(LS_KEY, open ? "1" : "0");
-  applyOpen(); renderWorkspace();
 }
 // Apply the saved state (call once at startup).
 export function restoreWorkspace() { applyOpen(); renderWorkspace(); }

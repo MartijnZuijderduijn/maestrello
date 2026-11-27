@@ -5,11 +5,12 @@ import { morphInto } from "./morph.js";
 import { pathField } from "./picker.js";
 import { cards, setOpenId } from "./state.js";
 import { actions, button } from "./ui.js";
+import { buildHash, parseHash } from "./route.js";
 import { $, esc, lsGet, lsSet } from "./util.js";
 
 // ---------- projects ----------
 // A project is a board of its own. The view shows one project as a plain board, or several as
-// stacked swimlanes. The choice lives in localStorage and in the URL hash (#p=1,3 or #p=all).
+// stacked swimlanes. The choice lives in localStorage and in the URL hash (#p=1,3 or #p=all, after the page: #workspace&p=1,3).
 export let projects = new Map();
 export let sel = [];            // chosen project ids; empty means all projects
 const LS_SEL = "maestrello.projects", LS_FOLD = "maestrello.collapsed";
@@ -20,14 +21,14 @@ export const laneHeights = (() => { try { const o = JSON.parse(lsGet(LS_H) || "{
 export const saveLaneHeights = () => lsSet(LS_H, JSON.stringify(laneHeights));
 const parseSel = (v) => v && v !== "all" ? v.split(",").map(Number).filter((n) => n > 0) : [];
 export function loadSel() {
-  const m = /^#p=([\w,]*)$/.exec(location.hash);
-  sel = parseSel(m ? m[1] : lsGet(LS_SEL));
+  const { p } = parseHash();
+  sel = parseSel(p ?? lsGet(LS_SEL));
 }
 export function setSel(ids) {
   sel = ids;
   const v = sel.length ? sel.join(",") : "all";
   lsSet(LS_SEL, v);
-  history.replaceState(null, "", "#p=" + v);
+  history.replaceState(null, "", buildHash(parseHash().page, v));
   renderProjects(); renderBoard();
 }
 window.addEventListener("hashchange", () => { loadSel(); renderProjects(); renderBoard(); });
