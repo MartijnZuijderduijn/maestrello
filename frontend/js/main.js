@@ -11,7 +11,6 @@ import { browsePath, pickPath } from "./picker.js";
 import { openSettings, projectSettingsChanged, saveProjectSettings, saveSettings, settingsRunFlagsChanged } from "./settings.js";
 import { $ } from "./util.js";
 import { initPages, setPage, toggleNav } from "./pages.js";
-import { restoreWorkspace } from "./workspace.js";
 
 // The markup uses inline on*= handlers, which look their functions up on window.
 Object.assign(window, { settingsRunFlagsChanged, refineAllTodo, autoModelChanged, act, addContextPick, addContextTyped, removeContext, answer, approve, blockDrag, browsePath, cardClick, cardKey, chatKey, clearDone, closeDrawer, createCard, createProject, deleteCard, deleteDoneCard, discard, dragEnd, dragLeave, dragOver, dragStart, dropCard, harnessChanged, kindChanged, newPromptKey, openCard, openNew, openNewProject, openEditProject, saveProject, openSettings, pickPath, planSelection, projectChanged, projectSettingsChanged, saveProjectSettings, recheckHarnesses, refreshAcct, replyChat, saveAgent, saveCard, saveReady, saveSettings, sendBack, setSel, skipChanged, startAllReady, toggleAcct, toggleLane, toggleProj, toggleProject, setPage, toggleNav });
@@ -26,6 +25,6 @@ showBoardSkeleton();
     try { const m = await api("GET", "/api/models"); if (m.length) setModels(m); } catch (e) {}
     try { const h = await api("GET", "/api/harnesses"); if (h.length) setHarnesses(h); } catch (e) {}
     try { setToolbox(await api("GET", "/api/toolbox")); } catch (e) {}
-    await loadCards(); restoreWorkspace(); connect();
+    await loadCards(); connect();
   } catch (e) { showBoardError(e.message); } // never leave the skeleton shimmering
 })();
