@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 
 func wsWorkspace(t *testing.T, app *App, p *model.Project, done bool) *WorkspaceView {
 	t.Helper()
-	v, err := app.Workspace(p.ID, done)
+	v, err := app.Workspace(context.Background(), p.ID, done, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ func TestWorkspaceDoneCards(t *testing.T) {
 func TestWorkspaceUnknownProject(t *testing.T) {
 	dir, _ := plainRoot(t)
 	app := newTestApp(t, dir)
-	if _, err := app.Workspace(9999, false); !errors.Is(err, store.ErrNotFound) {
+	if _, err := app.Workspace(context.Background(), 9999, false, false); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -160,5 +161,54 @@ func TestWorkspaceHTTP(t *testing.T) {
 	}
 	if code := sendJSON(t, "GET", app.baseURL+"/api/projects/x/workspace", nil, nil); code != 400 {
 		t.Errorf("bad id = %d", code)
+	}
+}
+
+func TestWorkspaceGitState(t *testing.T) {
+	_, root, app := repoFixture(t)
+	p := mkProject(t, app, "P", root)
+	c := readyCard(t, app, root, "WRITE ADD:svc/b", "svc/a")
+	inProject(t, app, c, p)
+	app.Run(c.ID)
+	waitStatus(t, app, c.ID, model.StatusReview)
+
+	get := func(q string) map[string]any {
+		var out struct {
+			Entries []struct {
+				Path string           `json:"path"`
+				Uses []map[string]any `json:"uses"`
+			} `json:"entries"`
+		}
+		if code := sendJSON(t, "GET", app.baseURL+"/api/projects/"+itoa(p.ID)+"/workspace"+q, nil, &out); code != 200 {
+			t.Fatalf("workspace = %d", code)
+		}
+		for _, e := range out.Entries {
+			if e.Path == "svc/a" && len(e.Uses) == 1 {
+				return e.Uses[0]
+			}
+		}
+		t.Fatalf("no svc/a use: %+v", out)
+		return nil
+	}
+	wt := get("")["worktree_path"].(string)
+	u := get("?git=1")
+	if a, ok := u["ahead"].(float64); !ok || a != 0 || u["dirty"] != true {
+		t.Errorf("before commit: ahead = %v dirty = %v", u["ahead"], u["dirty"])
+	}
+	testenv.Git(t, wt, "add", "-A")
+	testenv.Git(t, wt, "commit", "-qm", "work")
+	u = get("?git=1")
+	if a, ok := u["ahead"].(float64); !ok || a < 1 {
+		t.Errorf("ahead = %v", u["ahead"])
+	}
+	if u["dirty"] != false {
+		t.Errorf("dirty = %v", u["dirty"])
+	}
+	u = get("")
+	if _, ok := u["ahead"]; ok {
+		t.Errorf("ahead present without git=1: %v", u)
+	}
+	if _, ok := u["dirty"]; ok {
+		t.Errorf("dirty present without git=1: %v", u)
 	}
 }
